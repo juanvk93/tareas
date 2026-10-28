@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5a97ff"/>
+      <stop offset="1" stop-color="#3f7ae6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <g transform="translate(0 -12)" fill="#ffffff">
+    <!-- Chimenea -->
+    <rect x="332" y="128" width="40" height="80" rx="6"/>
+    <!-- Tejado -->
+    <path d="M104 252 256 124 408 252" fill="none" stroke="#ffffff" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Cuerpo con la puerta como hueco -->
+    <path fill-rule="evenodd" d="M172 236h168a20 20 0 0 1 20 20v132a20 20 0 0 1-20 20H172a20 20 0 0 1-20-20V256a20 20 0 0 1 20-20Z M226 408V340a30 30 0 0 1 60 0v68Z"/>
+  </g>
+</svg>

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <title>Tareas del Hogar</title>
+  <meta name="description" content="Reparto y control de tareas del hogar para parejas y familias.">
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0f1115" id="meta-theme-color">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Tareas">
+
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Cabecera -->
+    <header class="app-header">
+      <div class="app-header__title">
+        <span class="app-header__logo" aria-hidden="true" data-icon="home"></span>
+        <div>
+          <h1>Tareas del Hogar</h1>
+          <span class="app-header__version" id="header-version">v0.0.0</span>
+        </div>
+      </div>
+      <button class="icon-btn" id="btn-sync" title="Sincronizar" aria-label="Sincronizar">
+        <span id="sync-icon" data-icon="refresh"></span>
+      </button>
+    </header>
+
+    <!-- Contenido -->
+    <main id="view" class="view"></main>
+
+    <!-- Navegación inferior -->
+    <nav class="tabbar" id="tabbar">
+      <button class="tabbar__item is-active" data-view="hoy">
+        <span class="tabbar__icon" data-icon="home"></span><span class="tabbar__label">Hoy</span>
+      </button>
+      <button class="tabbar__item" data-view="semana">
+        <span class="tabbar__icon" data-icon="calendar"></span><span class="tabbar__label">Semana</span>
+      </button>
+      <button class="tabbar__item" data-view="tareas">
+        <span class="tabbar__icon" data-icon="list"></span><span class="tabbar__label">Tareas</span>
+      </button>
+      <button class="tabbar__item" data-view="stats">
+        <span class="tabbar__icon" data-icon="chart"></span><span class="tabbar__label">Stats</span>
+      </button>
+      <button class="tabbar__item" data-view="ajustes">
+        <span class="tabbar__icon" data-icon="settings"></span><span class="tabbar__label">Ajustes</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Contenedor de modales -->
+  <div id="modal-root"></div>
+  <!-- Contenedor de avisos (toasts) -->
+  <div id="toast-root" class="toast-root"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
