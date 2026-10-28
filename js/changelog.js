@@ -12,9 +12,32 @@
  *
  * Tipos de cambio: "add" (nuevo), "chg" (cambio/mejora), "fix" (corrección).
  */
-export const APP_VERSION = '2.1.0';
+export const APP_VERSION = '2.3.0';
 
 export const CHANGELOG = [
+  {
+    version: '2.3.0',
+    date: '2026-10-28',
+    changes: [
+      { type: 'add', text: 'En la pestaña Grupo puedes cambiar el tipo de grupo: compartido o privado.' },
+      { type: 'add', text: 'Interruptor «Enviar avisos» por grupo: al apagarlo se ocultan los ajustes de ntfy.' },
+      { type: 'add', text: 'Al crear un grupo eliges si quieres avisos al móvil.' },
+      { type: 'chg', text: 'Los grupos «personales» pasan a llamarse «privados» (icono de candado).' },
+      { type: 'chg', text: 'El selector de grupos indica qué grupos no tienen avisos.' }
+    ]
+  },
+  {
+    version: '2.2.0',
+    date: '2026-10-28',
+    changes: [
+      { type: 'add', text: 'Varios grupos: ten un grupo compartido con tu pareja y otro personal con tus propias tareas.' },
+      { type: 'add', text: 'Selector de grupo en la cabecera: toca el nombre del grupo para cambiar de lista o crear uno nuevo.' },
+      { type: 'add', text: 'Grupos personales: solo para ti, sin miembros ni invitación; Google Sheets opcional para usarlos en varios dispositivos.' },
+      { type: 'chg', text: 'Cada grupo tiene su propia Google Sheet y su propio tema de avisos, y todos se sincronizan en segundo plano.' },
+      { type: 'chg', text: 'Abrir una invitación añade el grupo sin tener que salir de los que ya tienes.' },
+      { type: 'chg', text: 'Tu configuración anterior se convierte automáticamente en tu primer grupo.' }
+    ]
+  },
   {
     version: '2.1.0',
     date: '2026-10-28',

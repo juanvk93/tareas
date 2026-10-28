@@ -1,5 +1,8 @@
 /* Sincronización con Google Sheets a través de un Web App de Google Apps Script.
  *
+ * Cada grupo tiene su propia hoja (su syncUrl). El campo `groupId` es local:
+ * no se sube, y al descargar se asigna el del grupo que se está sincronizando.
+ *
  * Estrategia: "last-write-wins" por registro usando el campo updatedAt.
  * - pull: descarga todos los registros remotos y aplica los más nuevos en local.
  * - push: envía los registros locales; el servidor guarda el más nuevo por id.
@@ -8,12 +11,11 @@
  * para que sean "peticiones simples" y evitar el preflight OPTIONS, que los
  * Web App de Apps Script no gestionan bien.
  */
-import {
-  DATA_STORES, getAllRaw, getOne, putRaw, getSettings, saveSettings
-} from './db.js';
+import { DATA_STORES, getAllRaw, getOne, putRaw, updateGroup } from './db.js';
 
-// Campos que son "columnas" (no van dentro del payload data del sheet).
-const META_FIELDS = ['id', 'updatedAt', 'deleted'];
+// Campos que no van dentro del payload data del sheet: las "columnas" y el
+// groupId (local).
+const META_FIELDS = ['id', 'updatedAt', 'deleted', 'groupId'];
 
 function recordToRow(store, rec) {
   const data = {};
@@ -22,15 +24,17 @@ function recordToRow(store, rec) {
   }
   return { store, id: rec.id, updatedAt: rec.updatedAt || 0, deleted: !!rec.deleted, data };
 }
-function rowToRecord(row) {
-  return Object.assign({ id: row.id, updatedAt: Number(row.updatedAt) || 0, deleted: !!row.deleted }, row.data || {});
+function rowToRecord(row, groupId) {
+  const rec = Object.assign({}, row.data || {}, { id: row.id, updatedAt: Number(row.updatedAt) || 0, deleted: !!row.deleted });
+  rec.groupId = groupId;
+  return rec;
 }
 
-async function collectLocalRecords() {
+async function collectLocalRecords(groupId) {
   const out = [];
   for (const store of DATA_STORES) {
     const all = await getAllRaw(store);
-    for (const rec of all) out.push(recordToRow(store, rec));
+    for (const rec of all) if (rec.groupId === groupId) out.push(recordToRow(store, rec));
   }
   return out;
 }
@@ -67,12 +71,14 @@ async function remotePush(url, token, records) {
 }
 
 /** Aplica registros remotos en local si son más nuevos. Devuelve nº aplicados. */
-async function applyRemote(remoteRows) {
+async function applyRemote(remoteRows, groupId) {
   let applied = 0;
   for (const row of remoteRows) {
     if (!DATA_STORES.includes(row.store)) continue;
-    const incoming = rowToRecord(row);
+    const incoming = rowToRecord(row, groupId);
     const existing = await getOne(row.store, incoming.id);
+    // Nunca pisar un registro de otro grupo (dos grupos con la misma hoja).
+    if (existing && existing.groupId && existing.groupId !== groupId) continue;
     if (!existing || (incoming.updatedAt || 0) > (existing.updatedAt || 0)) {
       await putRaw(row.store, incoming);
       applied++;
@@ -81,24 +87,23 @@ async function applyRemote(remoteRows) {
   return applied;
 }
 
-/** Sincronización bidireccional completa. */
-export async function syncNow() {
-  const s = await getSettings();
-  if (!s.syncUrl) throw new Error('No hay URL de sincronización configurada');
+/** Sincronización bidireccional completa de un grupo. */
+export async function syncNow(group) {
+  if (!group || !group.syncUrl) throw new Error('No hay URL de sincronización configurada');
 
   // 1) Descargar y fusionar lo remoto.
-  const remote = await remotePull(s.syncUrl, s.syncSecret);
-  const applied = await applyRemote(remote);
+  const remote = await remotePull(group.syncUrl, group.syncSecret);
+  const applied = await applyRemote(remote, group.id);
 
-  // 2) Subir el estado local (el servidor conserva el más nuevo por id).
-  const local = await collectLocalRecords();
-  const pushRes = await remotePush(s.syncUrl, s.syncSecret, local);
+  // 2) Subir el estado local del grupo (el servidor conserva el más nuevo por id).
+  const local = await collectLocalRecords(group.id);
+  const pushRes = await remotePush(group.syncUrl, group.syncSecret, local);
 
   // 3) Si el push devolvió el estado consolidado, volvemos a aplicarlo.
   let appliedBack = 0;
-  if (pushRes.records && pushRes.records.length) appliedBack = await applyRemote(pushRes.records);
+  if (pushRes.records && pushRes.records.length) appliedBack = await applyRemote(pushRes.records, group.id);
 
-  await saveSettings({ lastSyncAt: Date.now() });
+  await updateGroup(group.id, { lastSyncAt: Date.now() });
   return { pulled: applied + appliedBack, pushed: local.length };
 }
 

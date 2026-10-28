@@ -610,3 +610,55 @@ body.no-group .view { padding-bottom: calc(var(--safe-bottom) + 24px); }
 /* Toast con acción */
 .toast-root .toast { pointer-events: auto; }
 .toast__action { border: 0; background: none; color: var(--accent); font-weight: 700; font-size: 14px; padding: 0 0 0 6px; }
+
+/* ========================================================================
+   v2.2 · Varios grupos
+   ======================================================================== */
+.app-header__title { min-width: 0; }
+.app-header__text { min-width: 0; }
+.group-switch {
+  display: flex; align-items: center; gap: 6px;
+  max-width: 100%;
+  border: 0; background: none; padding: 0; color: var(--text);
+  text-align: left;
+}
+.group-switch h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-switch__type { font-size: 15px; line-height: 0; color: var(--text-dim); }
+.group-switch__type:empty { display: none; }
+.group-switch__chev { font-size: 16px; line-height: 0; color: var(--text-dim); flex-shrink: 0; }
+.group-switch:disabled { cursor: default; }
+.group-switch:disabled .group-switch__chev { display: none; }
+
+.group-row {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%;
+  padding: 13px 16px;
+  border: 0; border-bottom: 1px solid var(--border);
+  background: none; color: var(--text);
+  text-align: left; font-size: inherit;
+}
+.group-row:last-child { border-bottom: 0; }
+.group-row .list-item__title, .group-row .list-item__sub { display: block; }
+.group-row__icon {
+  width: 40px; height: 40px; flex-shrink: 0;
+  display: grid; place-items: center;
+  border-radius: 12px;
+  background: var(--bg-elev-2); color: var(--text-dim);
+  font-size: 20px; line-height: 0;
+}
+.group-row.is-active .group-row__icon { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.group-row__check { color: var(--accent); font-size: 20px; }
+.group-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+
+.onboard__hint { margin: 0 2px 14px; }
+.segment button { display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+.onboard .segment button { font-size: 14px; padding-left: 6px; padding-right: 6px; }
+
+/* Interruptor con título y explicación (p. ej. "Enviar avisos") */
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; cursor: pointer; }
+.toggle-row__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.toggle-row__title { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; }
+.toggle-row__title .ico { color: var(--accent); }
+.toggle-row .help { margin: 0; }
+.toggle-row .switch { flex-shrink: 0; }
+.notify-config { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }

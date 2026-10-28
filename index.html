@@ -24,8 +24,13 @@
     <header class="app-header">
       <div class="app-header__title">
         <span class="app-header__logo" aria-hidden="true" data-icon="home"></span>
-        <div>
-          <h1 id="header-title">Tareas del Hogar</h1>
+        <div class="app-header__text">
+          <!-- Selector de grupo: muestra el grupo activo y abre la lista de grupos -->
+          <button class="group-switch" id="group-switch" aria-label="Cambiar de grupo">
+            <span class="group-switch__type" id="group-switch-icon"></span>
+            <h1 id="header-title">Tareas del Hogar</h1>
+            <span class="group-switch__chev" data-icon="chevron-down"></span>
+          </button>
           <button class="app-header__version" id="header-version" title="Ver novedades">v0.0.0</button>
         </div>
       </div>

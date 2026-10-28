@@ -9,6 +9,7 @@ vanilla (ES modules) pensada para publicarse tal cual en **GitHub Pages**. Sirve
 que una pareja o familia comparta una **lista de tareas pendientes** (del hogar y otras), al
 estilo de la app de lista de la compra *Bring*: un **grupo** con sus miembros, tareas para hoy
 o planificadas para otro día (con repetición) y cualquiera puede marcarlas como resueltas.
+Cada móvil puede estar en **varios grupos** (típicamente uno compartido y otro personal).
 
 - **Tema oscuro por defecto** (claro opcional). Color de acento configurable.
 - **Datos locales** en **IndexedDB** con solicitud de almacenamiento **persistente**.
@@ -60,8 +61,11 @@ Tareas/
 
 ### Pantallas
 
-- **Sin grupo** (`settings.groupName` vacío) → `renderOnboarding()`: *Crear grupo* (nombre +
-  tu nombre) o *Unirme* (invitación + tu nombre). `body.no-group` oculta tabbar y botón de sync.
+- **Sin grupos** o vista `'nuevo'` → `renderOnboarding()`: *Compartido* / *Privado* (nombre +
+  tu nombre + avisos sí/no; al crear el primero compartido se ofrece crear también «Mis tareas») o *Unirme*
+  (invitación + tu nombre). `body.no-group` oculta tabbar y botón de sync.
+- **Selector de grupo:** el nombre de la cabecera (`#group-switch`) abre `openGroupSwitcher()`
+  (lista de grupos con pendientes de hoy + crear/unirse). `switchGroup(id)` conserva la pestaña.
 - **Hoy** (estilo Bring): buscador «¿Qué hay que hacer?», casillas de color con las pendientes
   (vencidas y de hoy; toque = resolver, pulsación larga/clic derecho = editar), *Recientes* y
   el catálogo por categorías (toque = añadir para hoy; si ya está pendiente sale en color).
@@ -69,18 +73,35 @@ Tareas/
   por persona), **Grupo** (miembros, invitar, Google Sheets, ntfy, salir) y **Ajustes**
   (apariencia, almacenamiento, copia de seguridad, novedades).
 
-### Grupo y personas
+### Grupos y personas
 
-- El grupo vive en los ajustes locales de cada móvil: `groupName`, `syncUrl`, `syncSecret`,
-  `ntfyServer`, `ntfyTopic`, `notifyEnabled`. **Cada móvil define su persona**: un registro en
-  `members` (sincronizado) cuyo id se guarda en `settings.currentMemberId`.
+- `settings.groups` = lista de grupos de este móvil y `settings.activeGroupId` el que se ve.
+  Cada grupo: `{id, name, personal, currentMemberId, syncUrl, syncSecret, autoSync, lastSyncAt,
+  notifyEnabled, ntfyServer, ntfyTopic, createdAt}`. En `app.js`, **`G()`** devuelve el grupo
+  activo; usa siempre `G().id` / `G().currentMemberId` (nada de campos de grupo sueltos).
+  Helpers en `db.js`: `activeGroup`, `addGroup`, `updateGroup`, `removeGroup`.
+- **`groupId` es LOCAL:** cada registro de `members`/`todos` lo lleva, pero no se sube a la hoja.
+  Cada grupo tiene su propia Google Sheet; `syncNow(group)` sube solo los registros de ese grupo
+  y asigna `groupId` a lo que descarga. Por eso dos móviles pueden tener ids de grupo distintos
+  para el mismo grupo. No se permite que dos grupos usen la misma `syncUrl`.
+- **Privado** (en datos `personal: true`; en la UI siempre «Privado», icono `lock`): solo tú; se
+  ocultan miembros, invitar, «¿A quién le toca?» y el resumen por persona. Sheets opcional.
+  El tipo se cambia en Grupo → *Tipo de grupo* (es un ajuste local de este móvil: no echa a nadie
+  de la hoja, por eso se avisa si hay más miembros).
+- **Avisos por grupo:** interruptor *Enviar avisos* en Grupo (`notifyEnabled`). Apagado oculta la
+  config de ntfy; al encenderlo se genera tema si no hay. Al crear el grupo se elige (por defecto
+  sí en compartidos, no en privados). El tema se genera siempre al crear.
+- **Cada móvil define su persona** en cada grupo: un registro en `members` (sincronizado) cuyo
+  id se guarda en `group.currentMemberId`. `settings.myName` se propone al crear/unirse.
 - **Invitación:** enlace `#join=<base64url JSON v2>` con `{groupName, syncUrl, syncSecret,
   ntfyServer, ntfyTopic}`. Se lee en `checkInviteLink()` (al arrancar y en `hashchange`) o
   pegándolo en *Unirme* (necesario en iOS: la PWA instalada no comparte almacenamiento con
-  Safari). También acepta el `#setup=` (v1) de la 1.1.
-- Al unirse (`joinGroup`) primero se sincroniza y, si ya existe un miembro con el mismo nombre,
-  se reutiliza (reinstalar no duplica personas). Salir (`leaveGroup`) marca tu miembro como
-  borrado, sincroniza y vacía los stores de datos y la config del grupo.
+  Safari).
+- Unirse **añade** un grupo (no hay que salir de los demás); si ya estás en uno con la misma
+  `syncUrl` (o el mismo tema, si no hay hoja) solo cambia a él (`findGroupForInvite`).
+  `joinGroup` primero sincroniza y, si ya existe un miembro con el mismo nombre, lo reutiliza.
+- Salir (`leaveGroup`): en compartidos marca tu miembro como borrado y sincroniza; después
+  `removeGroup()` borra físicamente los registros locales del grupo (los demás los conservan).
 
 ### Almacenes IndexedDB (DB `tareas-hogar`, v2)
 
@@ -88,11 +109,10 @@ Definidos en `db.js`. `DATA_STORES = ['members', 'todos']` son los que se sincro
 
 | Store     | Campos clave                                                                 |
 |-----------|------------------------------------------------------------------------------|
-| `members` | `id, name, color, updatedAt, deleted`                                        |
-| `todos`   | `id, title, icon, dueDate('YYYY-MM-DD'), repeat(none/daily/weekly/monthly), assignee, note, done, doneAt, doneBy, createdBy, createdAt, seriesId, updatedAt, deleted` |
+| `members` | `id, groupId, name, color, updatedAt, deleted`                               |
+| `todos`   | `id, groupId, title, icon, dueDate('YYYY-MM-DD'), repeat(none/daily/weekly/monthly), assignee, note, done, doneAt, doneBy, createdBy, createdAt, seriesId, updatedAt, deleted` |
 | `meta`    | `key, value` (`settings`, cola `ntfyQueue`)                                  |
 
-- `tasks`/`log`/`schedule` son de la v1.x: se crean/conservan en el upgrade pero no se usan.
 - **Borrado blando (tombstones):** eliminar = marcar `deleted:true` + `updatedAt`. La UI
   filtra con `getActive()`. Esto permite propagar los borrados por la sincronización.
 - **Repeticiones:** `completeTodo()` marca hecha y crea la siguiente con id determinista
@@ -112,9 +132,10 @@ Definidos en `db.js`. `DATA_STORES = ['members', 'todos']` son los que se sincro
   `autoSync` activo. La cabecera tiene botón de sync manual (`#btn-sync`).
 - El Web App debe desplegarse con acceso **"Cualquier persona"**; los responses incluyen
   `Access-Control-Allow-Origin: *`, por eso funciona desde el navegador.
-- Además del auto-sync tras cambios, `startBackgroundSync()` sincroniza al arrancar, en
-  `visibilitychange` (al volver a la app), en `online` y cada `POLL_MS` (60 s) con la app visible.
-  `doSync()` no se solapa (promesa `syncing`) y en modo silencioso solo repinta si llegó algo
+- Además del auto-sync tras cambios, `startBackgroundSync()` sincroniza **todos los grupos** al
+  arrancar, en `visibilitychange`, en `online` y cada `POLL_MS` (60 s) con la app visible.
+  `doSync(silent, groupId)` no se solapa por grupo (mapa `syncing`), solo repinta si llegó algo
+  al grupo activo
   (y nunca con un modal abierto o mientras se escribe en un input de la vista).
 - `Code.gs` es genérico (filas `store, id, updatedAt, deleted, json`): no cambió en la v2.
 
@@ -122,13 +143,14 @@ Definidos en `db.js`. `DATA_STORES = ['members', 'todos']` son los que se sincro
 
 - `notify.js` publica con `POST <servidor>/` y cuerpo JSON `{topic, title, message, tags, click}`
   **sin cabeceras** (petición simple, sin preflight; los acentos van en el body, no en cabeceras).
-- Se avisa al **añadir** una tarea y al **resolverla** (`notifyCreated`/`notifyResolved` en
-  `app.js`); editar, borrar, deshacer y las repeticiones generadas no avisan. El autor es
-  `settings.currentMemberId`; el título del aviso, `groupName`.
+- `notify(group, n)` usa la config del grupo; cada grupo tiene su tema. Se avisa al **añadir**
+  una tarea y al **resolverla** (`notifyCreated`/`notifyResolved`); editar, borrar, deshacer y
+  las repeticiones generadas no avisan. Autor = `G().currentMemberId`; título = nombre del grupo.
+  La cola guarda el servidor de cada mensaje, así `flushQueue()` sirve para todos los grupos.
 - Todos los móviles se suscriben al mismo tema, así que quien añade la tarea también recibe el aviso.
 - Sin red → cola en `meta.ntfyQueue` (máx. 50, caducan a las 24 h); `flushQueue()` en cada tick.
-- Ajustes: `notifyEnabled`, `ntfyServer` (def. `https://ntfy.sh`), `ntfyTopic` (`[-_A-Za-z0-9]{1,64}`).
-  Al crear el grupo se genera `randomTopic(groupName)` → p. ej. `tareas-hogar-k3j9x2m1qa`.
+- Por grupo: `notifyEnabled`, `ntfyServer` (def. `https://ntfy.sh`), `ntfyTopic` (`[-_A-Za-z0-9]{1,64}`).
+  Al crear el grupo se genera `randomTopic(name)` → p. ej. `tareas-hogar-k3j9x2m1qa`.
 
 ## Versionado y changelog
 
@@ -193,10 +215,13 @@ de los `<select>` no admiten SVG: ahí va solo el texto.
 
 ## Gotchas / cosas a vigilar
 
+- **Fase de desarrollo:** un único usuario; **no** se mantiene compatibilidad entre versiones (sin
+  migraciones). Si un cambio rompe los datos locales, basta con borrar los datos del sitio.
+
 - **`CACHE_VERSION` (sw.js) ↔ `APP_VERSION` (changelog.js)**: mantener sincronizados.
 - No mandar cabeceras extra en el `fetch` de sync (rompería con preflight en Apps Script).
 - Los borrados son blandos: nunca hagas `delete` físico si el registro debe sincronizarse.
-- El export **no** incluye `syncUrl`/`syncSecret`/`ntfyTopic` (por seguridad); se recuperan con
-  la invitación del grupo.
+- El export **no** incluye `syncUrl`/`syncSecret`/`ntfyTopic` de ningún grupo (por seguridad).
+  Al importar, los registros de grupos que no existen en el móvil van al grupo activo.
 - La invitación lleva la URL del Web App y la clave: tratarla como una contraseña.
 - `APPS_SCRIPT_CODE` en `app.js` es una copia de `apps-script/Code.gs`: si tocas uno, toca el otro.

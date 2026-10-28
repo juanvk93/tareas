@@ -11,6 +11,7 @@ import { CATALOG, searchCatalog, guessIcon, normalizeTitle } from './catalog.js'
 const ACCENTS = ['#4f8cff', '#7c5cff', '#ff5c8a', '#ff7a45', '#f5b545', '#35c98b', '#22c3d6', '#8b5cf6', '#ef4444', '#14b8a6'];
 const MEMBER_COLORS = ['#4f8cff', '#ff5c8a', '#35c98b', '#f5b545', '#7c5cff', '#ff7a45', '#22c3d6', '#ef4444'];
 const DEFAULT_GROUP = 'Tareas Hogar';
+const PERSONAL_GROUP = 'Mis tareas'; // Nombre propuesto para el grupo privado.
 
 /* Código de Google Apps Script que el usuario debe pegar (copiar botón). */
 const APPS_SCRIPT_CODE = `/**
@@ -169,7 +170,9 @@ function dueForText(key) {
   const l = dueLabel(key);
   return l === 'Hoy' || l === 'Mañana' ? `para ${l.toLowerCase()}` : `para el ${l}`;
 }
-function hasGroup() { return !!state.settings.groupName; }
+/** Configuración del grupo activo (o null si este móvil aún no tiene grupos). */
+const G = () => db.activeGroup(state.settings);
+function hasGroup() { return !!G(); }
 
 /* ================================ Toasts ================================= */
 function toast(msg, type = '', { action } = {}) {
@@ -237,46 +240,54 @@ function applyAppearance() {
   $('#meta-theme-color').setAttribute('content', bg);
 }
 function applyShell() {
-  document.body.classList.toggle('no-group', !hasGroup());
-  $('#header-title').textContent = state.settings.groupName || 'Tareas del Hogar';
+  const g = G();
+  document.body.classList.toggle('no-group', !g);
+  document.body.classList.toggle('is-personal', !!(g && g.personal));
+  $('#header-title').textContent = g ? g.name : 'Tareas del Hogar';
+  $('#group-switch').disabled = !g;
+  $('#group-switch-icon').innerHTML = g ? icon(g.personal ? 'lock' : 'users') : '';
 }
 
 /* ============================ Sincronización ============================ */
-const POLL_MS = 60 * 1000; // Con la app visible, traer cambios del grupo cada minuto.
+const POLL_MS = 60 * 1000; // Con la app visible, traer cambios de los grupos cada minuto.
 let autoSyncTimer = null;
 let pollTimer = null;
-let syncing = null; // Promise de la sincronización en curso (evita solapes).
+const syncing = new Map(); // groupId → Promise de la sincronización en curso (evita solapes).
 
 function scheduleAutoSync() {
-  if (!state.settings.autoSync || !state.settings.syncUrl) return;
+  const g = G();
+  if (!g || !g.autoSync || !g.syncUrl) return;
   clearTimeout(autoSyncTimer);
-  autoSyncTimer = setTimeout(() => doSync(true), 1500);
+  autoSyncTimer = setTimeout(() => doSync(true, g.id), 1500);
 }
-async function doSync(silent = false) {
-  if (!state.settings.syncUrl) {
-    if (!silent) toast('Configura la sincronización en la pestaña Grupo', 'err');
+async function doSync(silent = false, groupId = G() && G().id) {
+  const group = state.settings.groups.find((g) => g.id === groupId);
+  if (!group || !group.syncUrl) {
+    if (!silent) toast('Este grupo no tiene Google Sheets conectado (pestaña Grupo)', 'err');
     return;
   }
-  if (syncing) return syncing;
+  if (syncing.has(groupId)) return syncing.get(groupId);
+  const isActive = () => G() && G().id === groupId;
   const btn = $('#btn-sync');
-  btn.classList.add('is-spinning');
-  syncing = (async () => {
+  if (isActive()) btn.classList.add('is-spinning');
+  const p = (async () => {
     try {
-      const res = await syncNow();
+      const res = await syncNow(group);
       state.settings = await db.getSettings();
       if (!silent) toast(`Sincronizado (${res.pulled} recibidos)`, 'ok');
-      // En segundo plano solo repintamos si llegó algo, para no mover el
-      // scroll ni cerrar nada sin motivo.
-      if (!silent || res.pulled > 0) await refreshKeepingScroll();
+      // En segundo plano solo repintamos si llegó algo al grupo que se ve.
+      if (isActive() && (!silent || res.pulled > 0)) await refreshKeepingScroll();
+      return res;
     } catch (err) {
       if (!silent) toast('Error al sincronizar: ' + err.message, 'err');
-      console.warn('Sync error', err);
+      console.warn('Sync error', group.name, err);
     } finally {
-      btn.classList.remove('is-spinning');
-      syncing = null;
+      syncing.delete(groupId);
+      if (![...syncing.keys()].some((id) => G() && id === G().id)) btn.classList.remove('is-spinning');
     }
   })();
-  return syncing;
+  syncing.set(groupId, p);
+  return p;
 }
 async function refreshKeepingScroll() {
   if ($('.modal-overlay')) return; // No repintar debajo de un formulario abierto.
@@ -287,12 +298,12 @@ async function refreshKeepingScroll() {
   window.scrollTo(0, y);
 }
 
-/* Sincroniza al abrir la app, al volver a ella, al recuperar la red y
- * periódicamente mientras está visible. */
+/* Sincroniza todos los grupos al abrir la app, al volver a ella, al
+ * recuperar la red y periódicamente mientras está visible. */
 function startBackgroundSync() {
   const tick = () => {
     flushQueue().catch(() => {});
-    if (state.settings.syncUrl && state.settings.autoSync) doSync(true);
+    for (const g of state.settings.groups) if (g.syncUrl && g.autoSync) doSync(true, g.id);
   };
   const startPoll = () => { clearInterval(pollTimer); pollTimer = setInterval(tick, POLL_MS); };
   document.addEventListener('visibilitychange', () => {
@@ -312,18 +323,20 @@ async function memberName(id) {
 }
 /* Los avisos no bloquean la interfaz: si falla la red se encolan solos. */
 async function notifyCreated(todo) {
-  const who = (await memberName(state.settings.currentMemberId)) || 'Alguien';
+  const g = G();
+  const who = (await memberName(g.currentMemberId)) || 'Alguien';
   const forWhom = todo.assignee ? ` (le toca a ${(await memberName(todo.assignee)) || '?'})` : '';
-  notify({ message: `${who} ha añadido «${todo.title}» ${dueForText(todo.dueDate)}${forWhom}`, tags: ['heavy_plus_sign'] });
+  notify(g, { message: `${who} ha añadido «${todo.title}» ${dueForText(todo.dueDate)}${forWhom}`, tags: ['heavy_plus_sign'] });
 }
 async function notifyResolved(todo) {
-  const who = (await memberName(state.settings.currentMemberId)) || 'Alguien';
-  notify({ message: `${who} ha resuelto «${todo.title}»`, tags: ['white_check_mark'] });
+  const g = G();
+  const who = (await memberName(g.currentMemberId)) || 'Alguien';
+  notify(g, { message: `${who} ha resuelto «${todo.title}»`, tags: ['white_check_mark'] });
 }
 
 /* ========================== Acciones sobre tareas ======================= */
 async function completeTodo(id) {
-  const { todo, next } = await db.completeTodo(id, state.settings.currentMemberId);
+  const { todo, next } = await db.completeTodo(id, G().currentMemberId);
   if (!todo) return;
   scheduleAutoSync();
   notifyResolved(todo);
@@ -348,7 +361,7 @@ async function setView(v) {
 }
 async function refresh() {
   applyShell();
-  if (!hasGroup()) return renderOnboarding();
+  if (!hasGroup() || state.view === 'nuevo') return renderOnboarding();
   const v = state.view;
   if (v === 'hoy') return renderHoy();
   if (v === 'proximas') return renderProximas();
@@ -415,7 +428,7 @@ function tile({ title, iconName, active, overdue, cls = '', extra = '', attrs = 
 }
 
 async function renderHoy() {
-  const [members, all] = await Promise.all([db.members(), db.todos()]);
+  const [members, all] = await Promise.all([db.members(G().id), db.todos(G().id)]);
   const memById = new Map(members.map((m) => [m.id, m]));
   const today = todayKey();
   const pending = all.filter((t) => !t.done && t.dueDate <= today)
@@ -524,7 +537,7 @@ async function renderHoy() {
 }
 
 async function addForToday(title, iconName) {
-  const todo = await db.addTodo({ title, icon: iconName, dueDate: todayKey(), createdBy: state.settings.currentMemberId });
+  const todo = await db.addTodo({ groupId: G().id, title, icon: iconName, dueDate: todayKey(), createdBy: G().currentMemberId });
   state.search = '';
   scheduleAutoSync(); notifyCreated(todo);
   toast(`Añadida: ${title}`, 'ok', { action: { label: 'Deshacer', fn: async () => { await db.deleteTodo(todo.id); scheduleAutoSync(); refresh(); } } });
@@ -559,7 +572,7 @@ function wireTiles(all) {
 
 /* ========================== Vista: PRÓXIMAS ============================= */
 async function renderProximas() {
-  const [members, all] = await Promise.all([db.members(), db.todos()]);
+  const [members, all] = await Promise.all([db.members(G().id), db.todos(G().id)]);
   const memById = new Map(members.map((m) => [m.id, m]));
   const today = todayKey();
   const upcoming = all.filter((t) => !t.done && t.dueDate > today)
@@ -585,7 +598,7 @@ async function renderProximas() {
 
 /* =========================== Vista: HECHAS ============================== */
 async function renderHechas() {
-  const [members, all] = await Promise.all([db.members(), db.todos()]);
+  const [members, all] = await Promise.all([db.members(G().id), db.todos(G().id)]);
   const memById = new Map(members.map((m) => [m.id, m]));
   const done = all.filter((t) => t.done).sort((a, b) => b.doneAt - a.doneAt).slice(0, 150);
   const weekStart = startOfWeek(new Date()).getTime();
@@ -593,7 +606,7 @@ async function renderHechas() {
   for (const t of done) if (t.doneAt >= weekStart && t.doneBy) perMember.set(t.doneBy, (perMember.get(t.doneBy) || 0) + 1);
 
   let html = '';
-  if (perMember.size) {
+  if (perMember.size && !G().personal) {
     html += `<div class="card"><div class="muted text-sm" style="margin-bottom:10px">Resueltas esta semana</div><div class="chips">`
       + [...perMember].sort((a, b) => b[1] - a[1]).map(([id, n]) => {
         const m = memById.get(id) || { name: '?', color: '#888' };
@@ -617,7 +630,7 @@ async function renderHechas() {
 
 /* ======================= Modal: crear / editar tarea ==================== */
 async function openTodoModal({ todo = null, dueDate = todayKey(), title = '', icon: iconName = '' } = {}) {
-  const members = await db.members();
+  const members = await db.members(G().id);
   const today = todayKey(), tomorrow = addDays(today, 1);
   const cur = todo ? { ...todo } : { title, icon: iconName || (title ? guessIcon(title) : 'sparkles'), dueDate, repeat: 'none', assignee: null, note: '' };
   let iconTouched = !!todo || !!iconName;
@@ -640,7 +653,7 @@ async function openTodoModal({ todo = null, dueDate = todayKey(), title = '', ic
         ${Object.entries(REPEATS).map(([k, l]) => `<option value="${k}" ${k === cur.repeat ? 'selected' : ''}>${l}</option>`).join('')}
       </select>
     </div>
-    <div class="field"><label>¿A quién le toca?</label>
+    <div class="field ${G().personal ? 'hidden' : ''}"><label>¿A quién le toca?</label>
       <div class="person-picker" id="td-who">
         <button type="button" class="person-pick ${!cur.assignee ? 'is-active' : ''}" data-mid="">${icon('users')}Cualquiera</button>
         ${members.map((m) => `<button type="button" class="person-pick ${m.id === cur.assignee ? 'is-active' : ''}" data-mid="${esc(m.id)}">${avatar(m)}${esc(m.name)}</button>`).join('')}
@@ -693,7 +706,7 @@ async function openTodoModal({ todo = null, dueDate = todayKey(), title = '', ic
           await db.updateTodo(todo.id, fields);
           closeModal(); toast('Tarea guardada', 'ok');
         } else {
-          const created = await db.addTodo({ ...fields, createdBy: state.settings.currentMemberId });
+          const created = await db.addTodo({ ...fields, groupId: G().id, createdBy: G().currentMemberId });
           notifyCreated(created);
           state.search = '';
           closeModal(); toast(due === today ? 'Añadida para hoy' : `Planificada: ${dueLabel(due)}`, 'ok');
@@ -710,103 +723,214 @@ async function openTodoModal({ todo = null, dueDate = todayKey(), title = '', ic
   });
 }
 
-/* ======================= Inicio: crear o unirse a un grupo =============== */
+/* ================== Grupos: crear, unirse, cambiar y salir =============== */
 let pendingInvite = null; // Invitación recibida por enlace, para rellenar el formulario.
 
 function nextColor(used) {
   return MEMBER_COLORS.find((c) => !used.includes(c)) || MEMBER_COLORS[used.length % MEMBER_COLORS.length];
 }
 
+/* Pantalla para crear un grupo (compartido o privado) o unirse a uno. Es la
+ * bienvenida cuando aún no hay grupos y la vista "nuevo" cuando ya los hay. */
 function renderOnboarding() {
   const s = state.settings;
-  const mode = pendingInvite ? 'join' : (state.onboardMode || 'create');
+  const first = !hasGroup();
+  const mode = pendingInvite ? 'join' : (state.onboardMode || 'shared'); // shared | personal | join
+  const hasPersonal = s.groups.some((g) => g.personal);
+  const defaultName = mode === 'personal' ? (hasPersonal ? '' : PERSONAL_GROUP)
+    : (s.groups.some((g) => g.name === DEFAULT_GROUP) ? '' : DEFAULT_GROUP);
+  const hints = {
+    shared: 'Para compartir las tareas con tu pareja o familia: todos veis las mismas y cualquiera puede resolverlas.',
+    personal: 'Tus propias tareas pendientes: solo las ves tú.',
+    join: 'Con la invitación que te ha enviado quien creó el grupo.'
+  };
+
   view().innerHTML = `
     <div class="onboard">
-      <div class="onboard__logo">${icon('home')}</div>
-      <h1>Tareas del Hogar</h1>
-      <p class="muted">Comparte con tu pareja o familia las tareas pendientes de hoy y las que estén por venir.</p>
+      ${first ? `
+        <div class="onboard__logo">${icon('home')}</div>
+        <h1>Tareas del Hogar</h1>
+        <p class="muted">Tareas pendientes de hoy y las que estén por venir, solo para ti o compartidas con tu pareja o familia.</p>`
+      : `<div class="flex-between"><h2 class="list-head__title">Nuevo grupo</h2><button class="btn btn--ghost btn--sm" id="ob-cancel">Cancelar</button></div>`}
 
-      <div class="segment segment--block" style="margin:22px 0 16px">
-        <button data-mode="create" class="${mode === 'create' ? 'is-active' : ''}">Crear grupo</button>
-        <button data-mode="join" class="${mode === 'join' ? 'is-active' : ''}">Unirme a un grupo</button>
+      <div class="segment segment--block" style="margin:22px 0 10px">
+        <button data-mode="shared" class="${mode === 'shared' ? 'is-active' : ''}">${icon('users')}Compartido</button>
+        <button data-mode="personal" class="${mode === 'personal' ? 'is-active' : ''}">${icon('lock')}Privado</button>
+        <button data-mode="join" class="${mode === 'join' ? 'is-active' : ''}">${icon('link')}Unirme</button>
       </div>
+      <p class="help onboard__hint">${hints[mode]}</p>
 
       <div class="card">
-        ${mode === 'create' ? `
+        ${mode !== 'join' ? `
           <div class="field"><label>Nombre del grupo</label>
-            <input class="input" id="ob-group" value="${esc(DEFAULT_GROUP)}" maxlength="40">
+            <input class="input" id="ob-group" value="${esc(defaultName)}" placeholder="${mode === 'personal' ? 'Ej: Mis tareas' : 'Ej: Tareas Hogar'}" maxlength="40">
           </div>
           <div class="field"><label>Tu nombre</label>
-            <input class="input" id="ob-name" placeholder="Ej: Juan" maxlength="30" autocomplete="given-name">
-            <p class="help">Así te verán los demás miembros del grupo.</p>
+            <input class="input" id="ob-name" value="${esc(s.myName)}" placeholder="Ej: Juan" maxlength="30" autocomplete="given-name">
+            ${mode === 'shared' ? '<p class="help">Así te verán los demás miembros del grupo.</p>' : ''}
           </div>
+          <div class="field">
+            <label class="flex-between" style="cursor:pointer">
+              <span>Enviar avisos al móvil (ntfy)</span>
+              <input type="checkbox" id="ob-notify" ${mode === 'shared' ? 'checked' : ''} class="switch">
+            </label>
+            <p class="help">${mode === 'shared' ? 'Os avisa cuando alguien añade o resuelve una tarea.' : 'Te avisa en tu móvil al añadir o resolver tareas.'} Se puede cambiar después.</p>
+          </div>
+          ${mode === 'shared' && !hasPersonal ? `
+          <div class="field">
+            <label class="flex-between" style="cursor:pointer">
+              <span>Crear también mi grupo privado «${PERSONAL_GROUP}»</span>
+              <input type="checkbox" id="ob-personal-too" checked class="switch">
+            </label>
+          </div>` : ''}
           <button class="btn btn--primary btn--block" id="ob-create">Crear grupo</button>
-          <p class="help" style="margin-top:12px">Después, en la pestaña <b>Grupo</b>, conectas Google Sheets, activas los avisos e invitas a tu pareja.</p>
+          <p class="help" style="margin-top:12px">${mode === 'shared'
+            ? 'Después, en la pestaña <b>Grupo</b>, conectas Google Sheets, activas los avisos e invitas a tu pareja.'
+            : 'Si quieres tenerlo en varios dispositivos tuyos, conecta una Google Sheet en la pestaña <b>Grupo</b>.'}</p>
         ` : `
           ${pendingInvite ? `<div class="invite-box">${icon('link')}<div>Invitación al grupo <b>${esc(pendingInvite.groupName || DEFAULT_GROUP)}</b></div></div>` : `
           <div class="field"><label>Invitación</label>
             <input class="input" id="ob-code" placeholder="Pega aquí el enlace o el código" autocapitalize="off" autocomplete="off" spellcheck="false">
-            <p class="help">Pídesela a quien creó el grupo: Grupo → Invitar.</p>
+            <p class="help">Pídesela a quien creó el grupo: Grupo → Invitar a alguien.</p>
           </div>`}
           <div class="field"><label>Tu nombre</label>
-            <input class="input" id="ob-name" placeholder="Ej: Ana" maxlength="30" autocomplete="given-name">
+            <input class="input" id="ob-name" value="${esc(s.myName)}" placeholder="Ej: Ana" maxlength="30" autocomplete="given-name">
           </div>
           <button class="btn btn--primary btn--block" id="ob-join">Unirme</button>
         `}
       </div>
     </div>`;
 
-  $$('[data-mode]').forEach((b) => b.onclick = () => { state.onboardMode = b.dataset.mode; if (b.dataset.mode === 'create') pendingInvite = null; renderOnboarding(); });
+  $$('[data-mode]').forEach((b) => b.onclick = () => {
+    state.onboardMode = b.dataset.mode;
+    if (b.dataset.mode !== 'join') pendingInvite = null;
+    renderOnboarding();
+  });
+  const cancel = $('#ob-cancel');
+  if (cancel) cancel.onclick = () => { pendingInvite = null; state.onboardMode = null; setView('hoy'); };
 
   const createBtn = $('#ob-create');
   if (createBtn) createBtn.onclick = async () => {
-    const groupName = $('#ob-group').value.trim() || DEFAULT_GROUP;
-    const name = $('#ob-name').value.trim();
-    if (!name) return toast('Escribe tu nombre', 'err');
-    const used = (await db.members()).map((m) => m.color);
-    const me = await db.addMember({ name, color: nextColor(used) });
-    state.settings = await db.saveSettings({
-      groupName, currentMemberId: me.id,
-      // Si venía de la v1.1 con algo configurado, se conserva.
-      ntfyTopic: isValidTopic(s.ntfyTopic) ? s.ntfyTopic : randomTopic(groupName),
-      notifyEnabled: true
-    });
-    toast(`Grupo «${groupName}» creado`, 'ok');
-    scheduleAutoSync();
-    await setView('grupo');
+    const personal = mode === 'personal';
+    const name = $('#ob-group').value.trim();
+    const myName = $('#ob-name').value.trim();
+    if (!name) return toast('Ponle un nombre al grupo', 'err');
+    if (!myName) return toast('Escribe tu nombre', 'err');
+    const alsoPersonal = !!($('#ob-personal-too') && $('#ob-personal-too').checked);
+    const withNotify = $('#ob-notify').checked;
+    await db.saveSettings({ myName });
+    await createGroup({ name, personal, myName, notifyEnabled: withNotify });
+    if (alsoPersonal) await createGroup({ name: PERSONAL_GROUP, personal: true, myName, activate: false });
+    state.settings = await db.getSettings();
+    state.onboardMode = null;
+    toast(alsoPersonal ? `Grupos «${name}» y «${PERSONAL_GROUP}» creados` : `Grupo «${name}» creado`, 'ok');
+    await setView(personal ? 'hoy' : 'grupo');
   };
 
   const joinBtn = $('#ob-join');
   if (joinBtn) joinBtn.onclick = async () => {
-    const name = $('#ob-name').value.trim();
+    const myName = $('#ob-name').value.trim();
     let invite = pendingInvite;
     if (!invite) {
       invite = parseInvite($('#ob-code').value.trim());
       if (!invite) return toast('La invitación no es válida', 'err');
     }
-    if (!name) return toast('Escribe tu nombre', 'err');
-    await joinGroup(invite, name);
+    if (!myName) return toast('Escribe tu nombre', 'err');
+    await joinGroup(invite, myName);
   };
 }
 
-async function joinGroup(invite, name) {
-  state.settings = await db.saveSettings({
-    groupName: invite.groupName || DEFAULT_GROUP,
+async function createGroup({ name, personal, myName, notifyEnabled = !personal, activate = true }) {
+  // El tema se genera siempre: así activar los avisos más tarde es un solo toque.
+  const group = await db.addGroup({ name, personal, ntfyTopic: randomTopic(name), notifyEnabled }, { activate });
+  const me = await db.addMember({ groupId: group.id, name: myName, color: MEMBER_COLORS[0] });
+  state.settings = await db.updateGroup(group.id, { currentMemberId: me.id });
+  return group;
+}
+
+/** Grupo de este móvil que corresponde a una invitación (misma hoja o mismo tema). */
+function findGroupForInvite(invite) {
+  return state.settings.groups.find((g) => (invite.syncUrl && g.syncUrl === invite.syncUrl)
+    || (!invite.syncUrl && isValidTopic(invite.ntfyTopic) && g.ntfyTopic === invite.ntfyTopic)) || null;
+}
+
+async function joinGroup(invite, myName) {
+  const existing = findGroupForInvite(invite);
+  if (existing) {
+    pendingInvite = null;
+    await switchGroup(existing.id);
+    return toast(`Ya estás en «${existing.name}»`);
+  }
+  await db.saveSettings({ myName });
+  let group = await db.addGroup({
+    name: invite.groupName || DEFAULT_GROUP, personal: false,
     syncUrl: invite.syncUrl || '', syncSecret: invite.syncSecret || '', autoSync: true,
     ntfyServer: invite.ntfyServer || 'https://ntfy.sh', ntfyTopic: isValidTopic(invite.ntfyTopic) ? invite.ntfyTopic : '',
     notifyEnabled: isValidTopic(invite.ntfyTopic)
   });
   // Primero traemos el grupo para elegir un color libre y no duplicar nombre.
-  if (state.settings.syncUrl) { try { await syncNow(); } catch (e) { console.warn(e); } }
-  const existing = await db.members();
-  const same = existing.find((m) => m.name.trim().toLowerCase() === name.toLowerCase());
-  const me = same || await db.addMember({ name, color: nextColor(existing.map((m) => m.color)) });
-  state.settings = await db.saveSettings({ currentMemberId: me.id });
+  if (group.syncUrl) { try { await syncNow(group); } catch (e) { console.warn(e); } }
+  const existingMembers = await db.members(group.id);
+  const same = existingMembers.find((m) => m.name.trim().toLowerCase() === myName.toLowerCase());
+  const me = same || await db.addMember({ groupId: group.id, name: myName, color: nextColor(existingMembers.map((m) => m.color)) });
+  state.settings = await db.updateGroup(group.id, { currentMemberId: me.id });
+  group = G();
   pendingInvite = null;
-  toast(`Te has unido a «${state.settings.groupName}»`, 'ok');
+  state.onboardMode = null;
+  toast(`Te has unido a «${group.name}»`, 'ok');
   await setView('hoy');
-  if (state.settings.syncUrl) doSync(true);
+  if (group.syncUrl) doSync(true, group.id);
   else toast('La invitación no trae Google Sheets: no se compartirán las tareas', 'err');
+}
+
+async function switchGroup(id) {
+  state.settings = await db.saveSettings({ activeGroupId: id });
+  state.search = '';
+  state.showDoneToday = false;
+  closeModal();
+  await setView(state.view === 'nuevo' ? 'hoy' : state.view);
+  doSync(true, id);
+}
+
+function openNewGroup(mode) {
+  closeModal();
+  pendingInvite = null;
+  state.onboardMode = mode;
+  setView('nuevo');
+}
+
+/* Selector de grupo (se abre al tocar el nombre en la cabecera). */
+async function openGroupSwitcher() {
+  if (!hasGroup()) return;
+  const today = todayKey();
+  const current = G().id;
+  const rows = await Promise.all(state.settings.groups.map(async (g) => {
+    const n = (await db.todos(g.id)).filter((t) => !t.done && t.dueDate <= today).length;
+    return { g, n };
+  }));
+  openModal('Tus grupos', `
+    <div class="card card--pad0">
+      ${rows.map(({ g, n }) => `
+        <button class="group-row ${g.id === current ? 'is-active' : ''}" data-switch="${esc(g.id)}">
+          <span class="group-row__icon">${icon(g.personal ? 'lock' : 'users')}</span>
+          <span class="list-item__body">
+            <span class="list-item__title">${esc(g.name)}</span>
+            <span class="list-item__sub">${g.personal ? 'Privado' : 'Compartido'}${g.syncUrl ? '' : ' · solo en este móvil'}${g.notifyEnabled && isValidTopic(g.ntfyTopic) ? '' : ' · sin avisos'}</span>
+          </span>
+          ${n ? `<span class="badge" title="Pendientes hoy">${n}</span>` : ''}
+          ${g.id === current ? icon('check', { cls: 'group-row__check' }) : ''}
+        </button>`).join('')}
+    </div>
+    <div class="group-actions">
+      <button class="btn btn--block" data-new="shared">${icon('users')}Nuevo grupo compartido</button>
+      <button class="btn btn--block" data-new="personal">${icon('lock')}Nuevo grupo privado</button>
+      <button class="btn btn--ghost btn--block" data-new="join">${icon('link')}Unirme con una invitación</button>
+    </div>`, {
+    onMount(modal) {
+      $$('[data-switch]', modal).forEach((b) => b.onclick = () => (b.dataset.switch === current ? closeModal() : switchGroup(b.dataset.switch)));
+      $$('[data-new]', modal).forEach((b) => b.onclick = () => openNewGroup(b.dataset.new));
+    }
+  });
 }
 
 /* ----------------------------- Invitaciones ----------------------------- */
@@ -820,83 +944,96 @@ function encodeInvite(obj) {
 function parseInvite(raw) {
   if (!raw) return null;
   try {
-    const m = raw.match(/#(?:join|setup)=([-_A-Za-z0-9]+)/);
+    const m = raw.match(/#join=([-_A-Za-z0-9]+)/);
     const b64 = (m ? m[1] : raw).replace(/-/g, '+').replace(/_/g, '/');
     const bin = atob(b64 + '==='.slice((b64.length + 3) % 4));
     const cfg = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))));
-    // v1 = "Compartir configuración" de la 1.1 (sin nombre de grupo).
-    if (!cfg || (cfg.v !== 1 && cfg.v !== 2)) return null;
+    if (!cfg || cfg.v !== 2) return null;
     return cfg;
   } catch { return null; }
 }
 function inviteUrl() {
-  const s = state.settings;
-  const code = encodeInvite({ v: 2, groupName: s.groupName, syncUrl: s.syncUrl, syncSecret: s.syncSecret, ntfyServer: s.ntfyServer, ntfyTopic: s.ntfyTopic });
+  const g = G();
+  const code = encodeInvite({ v: 2, groupName: g.name, syncUrl: g.syncUrl, syncSecret: g.syncSecret, ntfyServer: g.ntfyServer, ntfyTopic: g.ntfyTopic });
   return `${location.origin}${location.pathname}#join=${code}`;
 }
 async function shareInvite() {
-  const s = state.settings;
-  if (!s.syncUrl && !await confirmDialog('Aún no has conectado Google Sheets: sin eso la otra persona no verá vuestras tareas. ¿Enviar la invitación igualmente?', { okText: 'Enviar' })) return;
+  const g = G();
+  if (!g.syncUrl && !await confirmDialog('Aún no has conectado Google Sheets: sin eso la otra persona no verá vuestras tareas. ¿Enviar la invitación igualmente?', { okText: 'Enviar' })) return;
   const url = inviteUrl();
-  const text = `Únete a «${s.groupName}» en Tareas del Hogar. Abre el enlace o pégalo en la app (Unirme a un grupo):`;
+  const text = `Únete a «${g.name}» en Tareas del Hogar. Abre el enlace o pégalo en la app (Unirme):`;
   if (navigator.share) {
-    try { await navigator.share({ title: s.groupName, text, url }); return; }
+    try { await navigator.share({ title: g.name, text, url }); return; }
     catch (e) { if (e.name === 'AbortError') return; }
   }
   try { await navigator.clipboard.writeText(url); toast('Invitación copiada: envíasela a tu pareja', 'ok'); }
   catch { prompt('Copia esta invitación y envíasela:', url); }
 }
-/* Si la app se abre con un enlace de invitación, lo usamos. */
+/* Si la app se abre con un enlace de invitación, se ofrece unirse (es un
+ * grupo más: no hace falta salir de los que ya tengas). */
 async function checkInviteLink() {
-  if (!/^#(join|setup)=/.test(location.hash)) return;
+  if (!location.hash.startsWith('#join=')) return;
   const invite = parseInvite(location.hash);
   history.replaceState(null, '', location.pathname + location.search);
   if (!invite) return toast('La invitación no es válida', 'err');
-  if (!hasGroup()) { pendingInvite = invite; return refresh(); }
-  const s = state.settings;
-  if ((invite.syncUrl && invite.syncUrl === s.syncUrl) || (invite.ntfyTopic && invite.ntfyTopic === s.ntfyTopic)) {
-    return toast(`Ya estás en «${s.groupName}»`);
+  const existing = findGroupForInvite(invite);
+  if (existing) {
+    await switchGroup(existing.id);
+    return toast(`Ya estás en «${existing.name}»`);
   }
-  if (await confirmDialog(`¿Salir de «${s.groupName}» y unirte a «${invite.groupName || DEFAULT_GROUP}»? Se borrarán de este móvil las tareas del grupo actual.`, { danger: true, okText: 'Cambiar de grupo' })) {
-    await leaveGroup(false);
-    pendingInvite = invite;
-    await refresh();
-  }
+  pendingInvite = invite;
+  state.onboardMode = 'join';
+  await setView('nuevo');
 }
 
-async function leaveGroup(confirmFirst = true) {
-  if (confirmFirst && !await confirmDialog(`¿Salir de «${state.settings.groupName}»? Se borrarán de este móvil las tareas y la configuración del grupo. Si usáis Google Sheets, los demás las conservan.`, { danger: true, okText: 'Salir del grupo' })) return;
-  // Avisamos al resto de que ya no estamos (si hay sync).
-  if (state.settings.currentMemberId) {
-    await db.deleteMember(state.settings.currentMemberId);
-    if (state.settings.syncUrl) { try { await syncNow(); } catch (e) { console.warn(e); } }
+async function leaveGroup() {
+  const g = G();
+  const msg = g.personal
+    ? `¿Eliminar el grupo privado «${g.name}»? Se borrarán sus tareas de este móvil${g.syncUrl ? ' (la copia en Google Sheets se mantiene)' : ''}.`
+    : `¿Salir de «${g.name}»? Se borrarán de este móvil sus tareas. Los demás miembros las conservan.`;
+  if (!await confirmDialog(msg, { danger: true, okText: g.personal ? 'Eliminar grupo' : 'Salir del grupo' })) return;
+  // En un grupo compartido avisamos al resto de que ya no estamos.
+  if (!g.personal && g.currentMemberId) {
+    await db.deleteMember(g.currentMemberId);
+    if (g.syncUrl) { try { await syncNow(g); } catch (e) { console.warn(e); } }
   }
-  for (const s of db.DATA_STORES) await db.clearStore(s);
-  state.settings = await db.saveSettings({
-    groupName: '', currentMemberId: null, syncUrl: '', syncSecret: '', lastSyncAt: 0,
-    notifyEnabled: false, ntfyTopic: ''
-  });
-  state.view = 'hoy';
-  await refresh();
+  state.settings = await db.removeGroup(g.id);
+  toast(g.personal ? `Grupo «${g.name}» eliminado` : `Has salido de «${g.name}»`, 'ok');
+  await setView('hoy');
 }
 
 /* ============================ Vista: GRUPO ============================== */
 async function renderGrupo() {
-  const s = state.settings;
-  const members = (await db.members()).sort((a, b) => (a.id === s.currentMemberId ? -1 : b.id === s.currentMemberId ? 1 : a.name.localeCompare(b.name)));
-  const lastSync = s.lastSyncAt ? `${relativeDay(s.lastSyncAt)} ${fmtTime(s.lastSyncAt)}` : 'Nunca';
-  const notifyOn = s.notifyEnabled && isValidTopic(s.ntfyTopic);
+  const g = G();
+  const personal = g.personal;
+  const members = (await db.members(g.id)).sort((a, b) => (a.id === g.currentMemberId ? -1 : b.id === g.currentMemberId ? 1 : a.name.localeCompare(b.name)));
+  const lastSync = g.lastSyncAt ? `${relativeDay(g.lastSyncAt)} ${fmtTime(g.lastSyncAt)}` : 'Nunca';
+  const notifyOn = g.notifyEnabled && isValidTopic(g.ntfyTopic);
+  const save = async (patch) => { state.settings = await db.updateGroup(g.id, patch); };
 
   view().innerHTML = `
     <div class="card group-head">
-      <div class="group-head__logo">${icon('users')}</div>
+      <div class="group-head__logo">${icon(personal ? 'lock' : 'users')}</div>
       <div class="list-item__body">
-        <div class="group-head__name">${esc(s.groupName)}</div>
-        <div class="muted text-sm">${members.length} miembro${members.length === 1 ? '' : 's'}</div>
+        <div class="group-head__name">${esc(g.name)}</div>
+        <div class="muted text-sm">${personal ? 'Privado · solo tú' : `Compartido · ${members.length} miembro${members.length === 1 ? '' : 's'}`}</div>
       </div>
       <button class="icon-btn" id="btn-rename" aria-label="Cambiar nombre del grupo">${icon('edit')}</button>
     </div>
 
+    <!-- Tipo de grupo -->
+    <div class="section-title"><h2>Tipo de grupo</h2></div>
+    <div class="card">
+      <div class="segment segment--block" id="set-type">
+        <button data-type="shared" class="${personal ? '' : 'is-active'}">${icon('users')}Compartido</button>
+        <button data-type="private" class="${personal ? 'is-active' : ''}">${icon('lock')}Privado</button>
+      </div>
+      <p class="help mb-0">${personal
+        ? 'Solo tú ves estas tareas: sin miembros ni invitaciones.'
+        : 'Compartes estas tareas con otras personas. Invítalas desde aquí abajo.'}</p>
+    </div>
+
+    ${personal ? '' : `
     <!-- Miembros -->
     <div class="section-title"><h2>Miembros</h2></div>
     <div class="card card--pad0"><div class="list">
@@ -904,32 +1041,33 @@ async function renderGrupo() {
         <div class="list-item">
           ${avatar(m, 'lg')}
           <div class="list-item__body"><div class="list-item__title">${esc(m.name)}</div>
-            ${m.id === s.currentMemberId ? '<div class="list-item__sub">Tú, en este móvil</div>' : ''}</div>
-          ${m.id === s.currentMemberId
+            ${m.id === g.currentMemberId ? '<div class="list-item__sub">Tú, en este móvil</div>' : ''}</div>
+          ${m.id === g.currentMemberId
             ? `<button class="delete-x" id="btn-me-edit" aria-label="Cambiar tu nombre">${icon('edit')}</button>`
             : `<button class="delete-x" data-del-member="${esc(m.id)}" aria-label="Quitar del grupo">${icon('x')}</button>`}
         </div>`).join('')}
     </div></div>
     <button class="btn btn--primary btn--block" id="btn-invite" style="margin-bottom:6px">${icon('share')}Invitar a alguien</button>
-    <p class="help" style="margin-bottom:22px">Envía la invitación a tu pareja por WhatsApp o similar. Al abrirla, escribirá su nombre y aparecerá aquí.</p>
+    <p class="help" style="margin-bottom:22px">Envía la invitación a tu pareja por WhatsApp o similar. Al abrirla, escribirá su nombre y aparecerá aquí.</p>`}
 
     <!-- Sincronización -->
-    <div class="section-title"><h2>Compartir tareas (Google Sheets)</h2></div>
+    <div class="section-title"><h2>${personal ? 'Copia en Google Sheets (opcional)' : 'Compartir tareas (Google Sheets)'}</h2></div>
     <div class="card">
       <div class="sync-status" style="margin-bottom:12px">
-        <span class="sync-dot ${s.syncUrl ? 'sync-dot--ok' : 'sync-dot--off'}"></span>
-        <span>${s.syncUrl ? 'Conectado' : 'Sin conectar: las tareas solo están en este móvil'}${s.syncUrl ? ' · Última: ' + esc(lastSync) : ''}</span>
+        <span class="sync-dot ${g.syncUrl ? 'sync-dot--ok' : 'sync-dot--off'}"></span>
+        <span>${g.syncUrl ? 'Conectado · Última: ' + esc(lastSync) : 'Sin conectar: las tareas solo están en este móvil'}</span>
       </div>
+      ${personal ? '<p class="help" style="margin:-4px 0 12px">Úsalo si quieres tus tareas en varios dispositivos o como copia de seguridad. Usa una hoja distinta a la de tus otros grupos.</p>' : ''}
       <div class="field"><label>URL del Web App (Google Apps Script)</label>
-        <input class="input" id="set-url" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(s.syncUrl)}" autocapitalize="off" spellcheck="false">
+        <input class="input" id="set-url" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(g.syncUrl)}" autocapitalize="off" spellcheck="false">
       </div>
       <div class="field"><label>Clave secreta (opcional)</label>
-        <input class="input" id="set-secret" placeholder="Debe coincidir con SECRET del script" value="${esc(s.syncSecret)}" autocapitalize="off" spellcheck="false">
+        <input class="input" id="set-secret" placeholder="Debe coincidir con SECRET del script" value="${esc(g.syncSecret)}" autocapitalize="off" spellcheck="false">
       </div>
       <div class="field">
         <label class="flex-between" style="cursor:pointer">
           <span>Sincronizar automáticamente</span>
-          <input type="checkbox" id="set-autosync" ${s.autoSync ? 'checked' : ''} class="switch">
+          <input type="checkbox" id="set-autosync" ${g.autoSync ? 'checked' : ''} class="switch">
         </label>
       </div>
       <div class="row" style="margin-bottom:10px">
@@ -940,49 +1078,52 @@ async function renderGrupo() {
     </div>
 
     <!-- Notificaciones -->
-    <div class="section-title"><h2>Avisos al móvil (ntfy)</h2></div>
+    <div class="section-title"><h2>Avisos al móvil</h2></div>
     <div class="card">
-      <div class="sync-status" style="margin-bottom:12px">
-        <span class="sync-dot ${notifyOn ? 'sync-dot--ok' : 'sync-dot--off'}"></span>
-        <span>${notifyOn ? 'Activos' : 'Desactivados'}</span>
-      </div>
-      <div class="field">
-        <label class="flex-between" style="cursor:pointer">
-          <span>Avisar al añadir o resolver tareas</span>
-          <input type="checkbox" id="set-notify" ${s.notifyEnabled ? 'checked' : ''} class="switch">
-        </label>
-      </div>
-      <div class="field"><label>Tema de ntfy</label>
-        <div class="input-group">
-          <input class="input" id="set-topic" placeholder="tareas-hogar-xxxx" value="${esc(s.ntfyTopic)}" autocapitalize="off" autocomplete="off" spellcheck="false">
-          <button class="btn" id="btn-topic-gen" title="Generar tema aleatorio" aria-label="Generar tema aleatorio">${icon('key')}</button>
+      <label class="toggle-row">
+        <span class="toggle-row__text">
+          <span class="toggle-row__title">${icon('bell')}Enviar avisos</span>
+          <span class="help">${personal
+            ? 'Te avisa en tu móvil (app ntfy) al añadir o resolver tareas.'
+            : 'Avisa a los miembros (app ntfy) cuando alguien añade o resuelve una tarea.'}</span>
+        </span>
+        <input type="checkbox" id="set-notify" ${notifyOn ? 'checked' : ''} class="switch">
+      </label>
+      ${notifyOn ? `
+      <div class="notify-config">
+        <div class="field"><label>Tema de ntfy</label>
+          <div class="input-group">
+            <input class="input" id="set-topic" placeholder="tareas-hogar-xxxx" value="${esc(g.ntfyTopic)}" autocapitalize="off" autocomplete="off" spellcheck="false">
+            <button class="btn" id="btn-topic-gen" title="Generar tema aleatorio" aria-label="Generar tema aleatorio">${icon('key')}</button>
+          </div>
+          <p class="help">${personal ? 'Cada grupo usa su propio tema.' : 'Va incluido en la invitación.'} Quien conozca el tema puede leer los avisos: no lo publiques.</p>
         </div>
-        <p class="help">Va incluido en la invitación. Quien conozca el tema puede leer los avisos: no lo publiques.</p>
-      </div>
-      <div class="field"><label>Servidor ntfy</label>
-        <input class="input" id="set-ntfy-server" placeholder="https://ntfy.sh" value="${esc(s.ntfyServer)}" autocapitalize="off" spellcheck="false">
-      </div>
-      <div class="row" style="margin-bottom:10px">
-        <button class="btn" id="btn-notify-test">${icon('send')}Probar</button>
-        <button class="btn btn--primary" id="btn-notify-save">Guardar</button>
-      </div>
-      <button class="btn btn--ghost btn--block btn--sm" id="btn-notify-guide">${icon('bell')}Cómo recibirlos en el móvil</button>
+        <div class="field"><label>Servidor ntfy</label>
+          <input class="input" id="set-ntfy-server" placeholder="https://ntfy.sh" value="${esc(g.ntfyServer)}" autocapitalize="off" spellcheck="false">
+        </div>
+        <div class="row" style="margin-bottom:10px">
+          <button class="btn" id="btn-notify-test">${icon('send')}Probar</button>
+          <button class="btn btn--primary" id="btn-notify-save">Guardar</button>
+        </div>
+        <button class="btn btn--ghost btn--block btn--sm" id="btn-notify-guide">${icon('book')}Cómo recibirlos en el móvil</button>
+      </div>` : ''}
     </div>
 
-    <button class="btn btn--danger btn--block" id="btn-leave" style="margin-top:8px">${icon('logout')}Salir del grupo</button>
+    <button class="btn btn--danger btn--block" id="btn-leave" style="margin-top:8px">${icon(personal ? 'trash' : 'logout')}${personal ? 'Eliminar grupo' : 'Salir del grupo'}</button>
   `;
 
   // --- Grupo y miembros ---
-  $('#btn-rename').onclick = () => promptText('Nombre del grupo', s.groupName, 40, async (v) => {
-    state.settings = await db.saveSettings({ groupName: v });
-    toast('Nombre cambiado. Reenvía la invitación si quieres que lo vean igual.', 'ok');
+  $('#btn-rename').onclick = () => promptText('Nombre del grupo', g.name, 40, async (v) => {
+    await save({ name: v });
+    toast(personal ? 'Nombre cambiado' : 'Nombre cambiado. Reenvía la invitación si quieres que lo vean igual.', 'ok');
     await refresh();
   });
   const meEdit = $('#btn-me-edit');
   if (meEdit) meEdit.onclick = async () => {
-    const me = await db.getOne('members', s.currentMemberId);
+    const me = await db.getOne('members', g.currentMemberId);
     promptText('Tu nombre', me ? me.name : '', 30, async (v) => {
-      await db.updateMember(s.currentMemberId, { name: v });
+      await db.updateMember(g.currentMemberId, { name: v });
+      state.settings = await db.saveSettings({ myName: v });
       scheduleAutoSync(); await renderGrupo();
     });
   };
@@ -992,8 +1133,19 @@ async function renderGrupo() {
       await db.deleteMember(m.id); scheduleAutoSync(); await renderGrupo();
     }
   });
-  $('#btn-invite').onclick = shareInvite;
-  $('#btn-leave').onclick = () => leaveGroup(true);
+  $$('[data-type]').forEach((b) => b.onclick = async () => {
+    const toPrivate = b.dataset.type === 'private';
+    if (toPrivate === personal) return;
+    if (toPrivate && members.length > 1 && !await confirmDialog(
+      `«${g.name}» tiene ${members.length} miembros. Al hacerlo privado dejarás de ver miembros e invitaciones en este móvil, pero quien ya esté dentro seguirá viendo las tareas mientras uséis la misma Google Sheet. ¿Continuar?`,
+      { okText: 'Hacer privado' })) return;
+    await save({ personal: toPrivate });
+    toast(toPrivate ? 'Ahora es un grupo privado' : 'Ahora es un grupo compartido: ya puedes invitar a alguien', 'ok');
+    await refresh();
+  });
+  const inviteBtn = $('#btn-invite');
+  if (inviteBtn) inviteBtn.onclick = shareInvite;
+  $('#btn-leave').onclick = leaveGroup;
 
   // --- Sincronización ---
   $('#btn-test').onclick = async () => {
@@ -1004,38 +1156,46 @@ async function renderGrupo() {
     catch (e) { toast('Error: ' + e.message, 'err'); }
   };
   $('#btn-savesync').onclick = async () => {
-    state.settings = await db.saveSettings({
-      syncUrl: $('#set-url').value.trim(),
-      syncSecret: $('#set-secret').value.trim(),
-      autoSync: $('#set-autosync').checked
-    });
+    const url = $('#set-url').value.trim();
+    const other = url && state.settings.groups.find((x) => x.id !== g.id && x.syncUrl === url);
+    if (other) return toast(`Esa hoja ya la usa «${other.name}». Cada grupo necesita la suya.`, 'err');
+    await save({ syncUrl: url, syncSecret: $('#set-secret').value.trim(), autoSync: $('#set-autosync').checked });
     await renderGrupo();
-    if (state.settings.syncUrl) await doSync(false);
+    if (url) await doSync(false, g.id);
   };
-  $('#set-autosync').onchange = async (e) => { state.settings = await db.saveSettings({ autoSync: e.target.checked }); };
+  $('#set-autosync').onchange = (e) => save({ autoSync: e.target.checked });
   $('#btn-guide').onclick = openGuideModal;
 
   // --- Notificaciones ---
+  $('#set-notify').onchange = async (e) => {
+    const on = e.target.checked;
+    const patch = { notifyEnabled: on };
+    if (on && !isValidTopic(g.ntfyTopic)) patch.ntfyTopic = randomTopic(g.name);
+    await save(patch);
+    await renderGrupo();
+    if (on) toast('Avisos activados: suscríbete al tema en la app ntfy', 'ok', { action: { label: 'Cómo', fn: () => openNotifyGuideModal(G()) } });
+    else toast('Avisos desactivados');
+  };
+  if (!notifyOn) return;
   const readNotifyForm = () => ({
-    notifyEnabled: $('#set-notify').checked,
     ntfyTopic: $('#set-topic').value.trim(),
     ntfyServer: $('#set-ntfy-server').value.trim() || 'https://ntfy.sh'
   });
   $('#btn-topic-gen').onclick = async () => {
-    if ($('#set-topic').value.trim() && !await confirmDialog('Si cambias el tema, todos tendréis que suscribiros de nuevo en ntfy (y reenviar la invitación). ¿Generar uno nuevo?', { okText: 'Generar' })) return;
-    $('#set-topic').value = randomTopic(s.groupName);
+    if ($('#set-topic').value.trim() && !await confirmDialog(`Si cambias el tema, ${personal ? 'tendrás' : 'todos tendréis'} que suscribiros de nuevo en ntfy${personal ? '' : ' (y reenviar la invitación)'}. ¿Generar uno nuevo?`, { okText: 'Generar' })) return;
+    $('#set-topic').value = randomTopic(g.name);
   };
   $('#btn-notify-save').onclick = async () => {
     const f = readNotifyForm();
-    if (f.notifyEnabled && !isValidTopic(f.ntfyTopic)) return toast('El tema no es válido', 'err');
-    state.settings = await db.saveSettings(f);
+    if (!isValidTopic(f.ntfyTopic)) return toast('El tema no es válido', 'err');
+    await save(f);
     toast('Avisos guardados', 'ok');
     await renderGrupo();
   };
   $('#btn-notify-test').onclick = async () => {
     const f = readNotifyForm();
     if (!isValidTopic(f.ntfyTopic)) return toast('Escribe o genera un tema', 'err');
-    try { await testNotify(f.ntfyServer, f.ntfyTopic, s.groupName); toast('Aviso de prueba enviado', 'ok'); }
+    try { await testNotify(f.ntfyServer, f.ntfyTopic, g.name); toast('Aviso de prueba enviado', 'ok'); }
     catch (e) { toast('Error: ' + e.message, 'err'); }
   };
   $('#btn-notify-guide').onclick = () => openNotifyGuideModal(readNotifyForm());
@@ -1183,8 +1343,8 @@ function openNotifyGuideModal({ ntfyServer, ntfyTopic }) {
       </div>` : `<p class="help" style="margin:4px 0 12px">Primero escribe o genera un tema y pulsa Guardar.</p>`}
     <ol start="3" style="padding-left:20px;line-height:1.6;font-size:14px">
       ${customServer ? `<li>Activa <b>Usar otro servidor</b> y escribe <code>${esc(ntfyServer)}</code>.</li>` : ''}
-      <li>Si tu versión de ntfy lo permite, ponle como nombre visible <b>${esc(state.settings.groupName)}</b>.</li>
-      <li>Tu pareja hace lo mismo en su móvil (el tema le llega con la invitación).</li>
+      <li>Si tu versión de ntfy lo permite, ponle como nombre visible <b>${esc(G().name)}</b>.</li>
+      ${G().personal ? '' : '<li>Tu pareja hace lo mismo en su móvil (el tema le llega con la invitación).</li>'}
       <li>Pulsa <b>Probar</b> para comprobarlo.</li>
     </ol>
     <p class="help">Recibiréis un aviso cada vez que alguien añada o resuelva una tarea. Si no hay conexión, el aviso se envía al recuperarla.</p>
@@ -1263,7 +1423,8 @@ async function importData(e) {
   if (!file) return;
   try {
     const payload = JSON.parse(await file.text());
-    await db.importAll(payload, { merge: true });
+    if (!hasGroup()) return toast('Crea antes un grupo', 'err');
+    await db.importAll(payload, { merge: true, fallbackGroupId: G().id });
     toast('Datos importados', 'ok');
     scheduleAutoSync();
     await refresh();
@@ -1289,6 +1450,7 @@ async function init() {
   $('#header-version').textContent = 'v' + APP_VERSION;
   $('#header-version').onclick = () => openChangelogModal();
   $('#btn-sync').onclick = () => doSync(false);
+  $('#group-switch').onclick = openGroupSwitcher;
 
   // Navegación
   $$('.tabbar__item').forEach((b) => b.onclick = () => setView(b.dataset.view));

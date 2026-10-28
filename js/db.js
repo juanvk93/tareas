@@ -1,15 +1,17 @@
 /* Capa de datos sobre IndexedDB.
  *
- * Almacenes (object stores) que se sincronizan con el grupo:
- *   - members : miembros del grupo   {id, name, color, updatedAt, deleted}
- *   - todos   : tareas pendientes    {id, title, icon, dueDate, repeat, assignee, note,
- *                                     done, doneAt, doneBy, createdBy, createdAt,
+ * Almacenes (object stores) que se sincronizan con su grupo:
+ *   - members : miembros del grupo   {id, groupId, name, color, updatedAt, deleted}
+ *   - todos   : tareas pendientes    {id, groupId, title, icon, dueDate, repeat, assignee,
+ *                                     note, done, doneAt, doneBy, createdBy, createdAt,
  *                                     seriesId, updatedAt, deleted}
  * Y uno local:
  *   - meta    : ajustes/config       {key, value}
  *
- * Los almacenes tasks/log/schedule de la v1.x se conservan sin usar (no se
- * borran datos al actualizar), pero ya no se leen ni se sincronizan.
+ * Grupos: un móvil puede estar en varios (p. ej. uno compartido y otro
+ * personal). La lista vive en settings.groups y cada registro lleva el
+ * `groupId` LOCAL de su grupo. Ese id no se sincroniza: cada grupo tiene su
+ * propia Google Sheet, así que al descargar se asigna el del grupo (ver sync.js).
  *
  * Los borrados son "blandos" (deleted:true + updatedAt) para poder
  * sincronizarlos entre dispositivos (tombstones). La interfaz filtra los
@@ -20,7 +22,6 @@ import { nextDue } from './dates.js';
 const DB_NAME = 'tareas-hogar';
 const DB_VERSION = 2;
 export const DATA_STORES = ['members', 'todos'];
-const LEGACY_STORES = ['tasks', 'log', 'schedule'];
 
 let _db = null;
 
@@ -30,7 +31,7 @@ export function openDB() {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
-      for (const s of [...DATA_STORES, ...LEGACY_STORES]) {
+      for (const s of DATA_STORES) {
         if (!db.objectStoreNames.contains(s)) db.createObjectStore(s, { keyPath: 'id' });
       }
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
@@ -64,6 +65,10 @@ export async function putRaw(store, record) {
   await openDB();
   return reqToPromise(tx(store, 'readwrite').put(record));
 }
+export async function deleteRaw(store, id) {
+  await openDB();
+  return reqToPromise(tx(store, 'readwrite').delete(id));
+}
 export async function clearStore(store) {
   await openDB();
   return reqToPromise(tx(store, 'readwrite').clear());
@@ -74,9 +79,16 @@ const DEFAULT_SETTINGS = {
   accent: '#4f8cff',
   theme: 'dark',
   lastSeenVersion: '', // Última versión cuyas novedades se mostraron en este móvil.
-  // Grupo
-  groupName: '',
-  currentMemberId: null,
+  myName: '',          // Tu nombre, para proponerlo al crear o unirte a grupos.
+  groups: [],
+  activeGroupId: null
+};
+
+/* Configuración de cada grupo (elemento de settings.groups). */
+const GROUP_DEFAULTS = {
+  name: '',
+  personal: false,       // Personal = solo tú (sin miembros ni invitación).
+  currentMemberId: null, // Tu persona dentro de este grupo.
   syncUrl: '',
   syncSecret: '',
   autoSync: true,
@@ -98,6 +110,33 @@ export async function saveSettings(patch) {
   return value;
 }
 
+/* -------------------------------- Grupos --------------------------------- */
+export function activeGroup(settings) {
+  return settings.groups.find((g) => g.id === settings.activeGroupId) || settings.groups[0] || null;
+}
+export async function getGroup(id) {
+  return (await getSettings()).groups.find((g) => g.id === id) || null;
+}
+export async function addGroup(fields, { activate = true } = {}) {
+  const s = await getSettings();
+  const group = Object.assign({}, GROUP_DEFAULTS, fields, { id: uid(), createdAt: Date.now() });
+  await saveSettings({ groups: [...s.groups, group], activeGroupId: activate ? group.id : (s.activeGroupId || group.id) });
+  return group;
+}
+export async function updateGroup(id, patch) {
+  const s = await getSettings();
+  return saveSettings({ groups: s.groups.map((g) => (g.id === id ? Object.assign({}, g, patch) : g)) });
+}
+/** Quita el grupo de este móvil y borra (de verdad) sus registros locales. */
+export async function removeGroup(id) {
+  for (const store of DATA_STORES) {
+    for (const rec of await getAllRaw(store)) if (rec.groupId === id) await deleteRaw(store, rec.id);
+  }
+  const s = await getSettings();
+  const groups = s.groups.filter((g) => g.id !== id);
+  return saveSettings({ groups, activeGroupId: s.activeGroupId === id ? (groups[0] ? groups[0].id : null) : s.activeGroupId });
+}
+
 /* --------------------------- Utilidades varias --------------------------- */
 export function uid() {
   if (crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -105,8 +144,8 @@ export function uid() {
 }
 
 /* --------------------------- Miembros del grupo -------------------------- */
-export async function addMember({ name, color }) {
-  const rec = { id: uid(), name: name.trim(), color, updatedAt: Date.now(), deleted: false };
+export async function addMember({ groupId, name, color }) {
+  const rec = { id: uid(), groupId, name: name.trim(), color, updatedAt: Date.now(), deleted: false };
   await putRaw('members', rec);
   return rec;
 }
@@ -123,13 +162,15 @@ export async function deleteMember(id) {
   rec.deleted = true; rec.updatedAt = Date.now();
   await putRaw('members', rec);
 }
-export function members() { return getActive('members'); }
+export async function members(groupId) {
+  return (await getActive('members')).filter((r) => r.groupId === groupId);
+}
 
 /* ---------------------------- Tareas pendientes -------------------------- */
-export async function addTodo({ title, icon, dueDate, repeat, assignee, note, createdBy }) {
+export async function addTodo({ groupId, title, icon, dueDate, repeat, assignee, note, createdBy }) {
   const id = uid();
   const rec = {
-    id, title: title.trim(), icon: icon || 'sparkles', dueDate,
+    id, groupId, title: title.trim(), icon: icon || 'sparkles', dueDate,
     repeat: repeat || 'none', assignee: assignee || null, note: note || '',
     done: false, doneAt: 0, doneBy: null,
     createdBy: createdBy || null, createdAt: Date.now(),
@@ -152,7 +193,9 @@ export async function deleteTodo(id) {
   rec.deleted = true; rec.updatedAt = Date.now();
   await putRaw('todos', rec);
 }
-export function todos() { return getActive('todos'); }
+export async function todos(groupId) {
+  return (await getActive('todos')).filter((r) => r.groupId === groupId);
+}
 
 /** Id determinista de la siguiente repetición: si los dos móviles resuelven
  * la misma tarea a la vez, generan el mismo registro y no se duplica. */
@@ -206,17 +249,21 @@ export async function exportAll() {
   const data = {};
   for (const s of DATA_STORES) data[s] = await getAllRaw(s);
   const settings = await getSettings();
-  // No exportamos claves de sincronización ni el tema de ntfy por seguridad;
-  // el usuario las reintroduce (o usa la invitación del grupo).
-  const safeSettings = Object.assign({}, settings, { syncUrl: '', syncSecret: '', ntfyTopic: '' });
-  return { app: 'tareas-hogar', version: 2, exportedAt: Date.now(), stores: data, settings: safeSettings };
+  // No exportamos claves de sincronización ni temas de ntfy por seguridad;
+  // se recuperan con la invitación de cada grupo.
+  const groups = settings.groups.map((g) => Object.assign({}, g, { syncUrl: '', syncSecret: '', ntfyTopic: '' }));
+  return { app: 'tareas-hogar', version: 3, exportedAt: Date.now(), stores: data, settings: Object.assign({}, settings, { groups }) };
 }
-export async function importAll(payload, { merge = true } = {}) {
+/** Importa una copia. Los registros de grupos que no existen en este móvil
+ * (o de copias sin grupos) van al grupo `fallbackGroupId`. */
+export async function importAll(payload, { merge = true, fallbackGroupId } = {}) {
   if (!payload || !payload.stores) throw new Error('Archivo no válido');
+  const known = new Set((await getSettings()).groups.map((g) => g.id));
   for (const s of DATA_STORES) {
     const incoming = payload.stores[s] || [];
     if (!merge) await clearStore(s);
-    for (const rec of incoming) {
+    for (const raw of incoming) {
+      const rec = known.has(raw.groupId) ? raw : Object.assign({}, raw, { groupId: fallbackGroupId });
       if (merge) {
         const existing = await getOne(s, rec.id);
         if (existing && (existing.updatedAt || 0) >= (rec.updatedAt || 0)) continue;

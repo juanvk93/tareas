@@ -7,8 +7,10 @@ cuentas. Los datos se comparten a través de **tu** Google Sheet.
 
 ## ✨ Cómo funciona
 
-- 👥 **Grupo** (p. ej. «Tareas Hogar»): lo crea una persona y los demás se unen con una
-  invitación. Cada móvil define **su persona** («Juan», «Ana»…).
+- 👥 **Grupos:** uno **compartido** (p. ej. «Tareas Hogar», con tu pareja) y otro **privado**
+  («Mis tareas», solo para ti). El tipo y los avisos se pueden cambiar en la pestaña **Grupo**. Toca el nombre del grupo en la cabecera para cambiar de lista.
+- 🙋 En los compartidos, cada móvil define **su persona** («Juan», «Ana»…) y los demás se unen
+  con una invitación.
 - 🟦 **Hoy:** las tareas pendientes en casillas grandes. Un toque la marca como **resuelta**
   (para todos). Mantén pulsado para editarla.
 - ➕ **Añadir:** escribe en «¿Qué hay que hacer?» o toca una tarea del catálogo (Limpieza,
@@ -33,21 +35,28 @@ cuentas. Los datos se comparten a través de **tu** Google Sheet.
 
 **Quien crea el grupo (p. ej. Juan):**
 
-1. Abre la app → **Crear grupo** → nombre del grupo (*Tareas Hogar*) y tu nombre (*Juan*).
+1. Abre la app → **Compartido** → nombre del grupo (*Tareas Hogar*) y tu nombre (*Juan*).
+   Elige si quieres avisos y deja marcado «Crear también mi grupo privado» si quieres tu lista propia.
 2. Conecta Google Sheets (5 minutos, ver abajo) en **Grupo → Compartir tareas**.
 3. Pulsa **Grupo → Invitar a alguien** y envía el enlace por WhatsApp/Signal.
 
 **Quien se une (p. ej. Ana):**
 
 1. Abre el enlace → escribe tu nombre (*Ana*) → **Unirme**. Ya veis las mismas tareas y los
-   dos aparecéis en **Grupo → Miembros**.
+   dos aparecéis en **Grupo → Miembros**. Si ya tenías otros grupos, este se añade a la lista.
 2. **En iPhone**, la app instalada en la pantalla de inicio no comparte datos con Safari:
    copia el enlace, abre la app instalada → **Unirme a un grupo** → pégalo ahí.
 
 > La invitación incluye la URL de la hoja, la clave y el tema de avisos: compártela solo por
 > un canal privado.
 
+**Más grupos:** toca el nombre del grupo en la cabecera → *Nuevo grupo compartido*, *Nuevo grupo
+privado* o *Unirme con una invitación*.
+
 ### Conectar Google Sheets
+
+> Cada grupo usa **su propia** Google Sheet. En un grupo privado es opcional: sirve para tener
+> tus tareas en varios dispositivos o como copia de seguridad.
 
 1. Crea una **Google Sheet** nueva (hoja de cálculo en blanco).
 2. Menú **Extensiones → Apps Script**.
@@ -67,8 +76,9 @@ cada minuto mientras está abierta.
 
 ## 🔔 Avisos en el móvil (ntfy)
 
-Al crear el grupo se genera un **tema** de [ntfy](https://ntfy.sh) (p. ej.
-`tareas-hogar-k3j9x2m1qa`) y viaja en la invitación. En cada móvil:
+Se activan o desactivan por grupo con el interruptor **Grupo → Avisos al móvil → Enviar avisos**.
+Cada grupo tiene su **tema** de [ntfy](https://ntfy.sh) (p. ej. `tareas-hogar-k3j9x2m1qa`), que
+viaja en la invitación. En cada móvil:
 
 1. Instala **ntfy** ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) ·
    [iPhone](https://apps.apple.com/app/ntfy/id1625396347)).

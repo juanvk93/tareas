@@ -19,6 +19,7 @@ const PATHS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   'chevron-left': '<path d="m15 18-6-6 6-6"/>',
   'chevron-right': '<path d="m9 18 6-6-6-6"/>',
+  'chevron-down': '<path d="m6 9 6 6 6-6"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   download: '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',
   upload: '<path d="M12 15V3M7 8l5-5 5 5M4 21h16"/>',
@@ -43,6 +44,7 @@ const PATHS = {
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
   note: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+  lock: '<rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
   key: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.8-9.8M17 6l3 3M14.5 8.5l2 2"/>',
 
   /* ------------------------------- Tareas ------------------------------- */

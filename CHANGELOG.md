@@ -1,8 +1,35 @@
 # Registro de cambios
 
-Todos los cambios relevantes de **Tareas del Hogar**. Versión actual: **2.1.0**.
+Todos los cambios relevantes de **Tareas del Hogar**. Versión actual: **2.3.0**.
 
 > Archivo generado desde `js/changelog.js` con `node tools/gen_changelog.mjs`. No editar a mano.
+
+## [2.3.0] — 2026-10-28
+
+### Añadido
+
+- En la pestaña Grupo puedes cambiar el tipo de grupo: compartido o privado.
+- Interruptor «Enviar avisos» por grupo: al apagarlo se ocultan los ajustes de ntfy.
+- Al crear un grupo eliges si quieres avisos al móvil.
+
+### Cambiado
+
+- Los grupos «personales» pasan a llamarse «privados» (icono de candado).
+- El selector de grupos indica qué grupos no tienen avisos.
+
+## [2.2.0] — 2026-10-28
+
+### Añadido
+
+- Varios grupos: ten un grupo compartido con tu pareja y otro personal con tus propias tareas.
+- Selector de grupo en la cabecera: toca el nombre del grupo para cambiar de lista o crear uno nuevo.
+- Grupos personales: solo para ti, sin miembros ni invitación; Google Sheets opcional para usarlos en varios dispositivos.
+
+### Cambiado
+
+- Cada grupo tiene su propia Google Sheet y su propio tema de avisos, y todos se sincronizan en segundo plano.
+- Abrir una invitación añade el grupo sin tener que salir de los que ya tienes.
+- Tu configuración anterior se convierte automáticamente en tu primer grupo.
 
 ## [2.1.0] — 2026-10-28
 

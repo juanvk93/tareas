@@ -11,7 +11,7 @@
  * Si no hay conexión, el aviso se guarda en una cola (meta.ntfyQueue) y se
  * envía en cuanto vuelva la red (flushQueue).
  */
-import { getOne, putRaw, getSettings } from './db.js';
+import { getOne, putRaw } from './db.js';
 
 const QUEUE_KEY = 'ntfyQueue';
 const MAX_QUEUE = 50;
@@ -41,8 +41,8 @@ export function topicUrl(server, topic) {
   return `${serverBase(server)}/${encodeURIComponent(topic)}`;
 }
 
-function isConfigured(s) {
-  return s.notifyEnabled && isValidTopic(s.ntfyTopic);
+function isConfigured(group) {
+  return !!group && group.notifyEnabled && isValidTopic(group.ntfyTopic);
 }
 
 async function publish(server, msg) {
@@ -62,15 +62,16 @@ async function writeQueue(items) {
 }
 
 /**
- * Envía un aviso a todo el hogar. Nunca lanza: si falla, lo encola.
+ * Envía un aviso a los miembros de un grupo. Nunca lanza: si falla, lo encola.
+ * @param {object} group  configuración del grupo (settings.groups[i])
  * @param {{title?:string, message:string, tags?:string[], priority?:number}} n
  */
-export async function notify(n) {
-  const s = await getSettings();
-  if (!isConfigured(s)) return { sent: false, reason: 'off' };
+export async function notify(group, n) {
+  if (!isConfigured(group)) return { sent: false, reason: 'off' };
   const msg = {
-    topic: s.ntfyTopic,
-    title: n.title || s.groupName || 'Tareas Hogar',
+    server: group.ntfyServer,
+    topic: group.ntfyTopic,
+    title: n.title || group.name || 'Tareas Hogar',
     message: n.message,
     tags: n.tags || [],
     priority: n.priority || 3,
@@ -79,7 +80,7 @@ export async function notify(n) {
   };
   try {
     if (!navigator.onLine) throw new Error('offline');
-    await publish(s.ntfyServer, stripLocal(msg));
+    await publish(msg.server, stripLocal(msg));
     return { sent: true };
   } catch (err) {
     const q = await readQueue();
@@ -89,10 +90,9 @@ export async function notify(n) {
   }
 }
 
-/** Reintenta los avisos pendientes. Devuelve cuántos se enviaron. */
+/** Reintenta los avisos pendientes (de cualquier grupo). Devuelve cuántos se enviaron. */
 export async function flushQueue() {
-  const s = await getSettings();
-  if (!isConfigured(s) || !navigator.onLine) return 0;
+  if (!navigator.onLine) return 0;
   const q = await readQueue();
   if (!q.length) return 0;
   const now = Date.now();
@@ -100,7 +100,7 @@ export async function flushQueue() {
   let sent = 0;
   for (const msg of q) {
     if (now - (msg.createdAt || 0) > MAX_AGE_MS) continue;
-    try { await publish(s.ntfyServer, stripLocal(msg)); sent++; }
+    try { await publish(msg.server, stripLocal(msg)); sent++; }
     catch { rest.push(msg); }
   }
   await writeQueue(rest);
@@ -120,7 +120,7 @@ export async function testNotify(server, topic, title = 'Tareas Hogar') {
 }
 
 function stripLocal(msg) {
-  const { createdAt, ...rest } = msg;
+  const { createdAt, server, ...rest } = msg;
   return rest;
 }
 
