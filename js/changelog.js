@@ -1,15 +1,49 @@
-/* Versión del producto y registro de cambios.
+/* Versión del producto y registro de cambios (fuente única).
+ *
+ * Se muestra en la app (cabecera → versión, Ajustes → Novedades y
+ * automáticamente tras actualizar) y se vuelca a CHANGELOG.md con
+ * `node tools/gen_changelog.mjs`.
  *
  * Al publicar cambios:
  *   1. Sube APP_VERSION siguiendo SemVer (MAJOR.MINOR.PATCH).
  *   2. Añade una entrada arriba del array CHANGELOG.
  *   3. Actualiza CACHE_VERSION en sw.js con el mismo número (v + versión).
+ *   4. Regenera CHANGELOG.md: node tools/gen_changelog.mjs
  *
  * Tipos de cambio: "add" (nuevo), "chg" (cambio/mejora), "fix" (corrección).
  */
-export const APP_VERSION = '1.1.0';
+export const APP_VERSION = '2.1.0';
 
 export const CHANGELOG = [
+  {
+    version: '2.1.0',
+    date: '2026-10-28',
+    changes: [
+      { type: 'add', text: 'Al actualizar la app se muestran automáticamente las novedades de la nueva versión.' },
+      { type: 'add', text: 'Toca el número de versión de la cabecera para ver el registro de cambios.' },
+      { type: 'add', text: 'Registro de cambios también en el repositorio (CHANGELOG.md).' }
+    ]
+  },
+  {
+    version: '2.0.0',
+    date: '2026-10-28',
+    changes: [
+      { type: 'add', text: 'Grupos: crea un grupo (p. ej. «Tareas Hogar») o únete con una invitación. Cada móvil define su persona.' },
+      { type: 'add', text: 'Tareas pendientes compartidas para hoy o planificadas para otro día, con repetición diaria, semanal o mensual.' },
+      { type: 'add', text: 'Pantalla Hoy al estilo de una lista de la compra: casillas grandes, catálogo de tareas habituales y recientes.' },
+      { type: 'add', text: 'Pestañas Próximas (lo planificado) y Hechas (historial y resumen de la semana).' },
+      { type: 'add', text: 'Invitar a alguien: un enlace con el grupo, Google Sheets y el tema de ntfy, sin copiar nada a mano.' },
+      { type: 'chg', text: 'La configuración de Google Sheets y ntfy pasa a la pestaña Grupo.' },
+      { type: 'chg', text: 'Se retiran el catálogo con puntos, el planificador semanal y las estadísticas.' }
+    ]
+  },
+  {
+    version: '1.1.1',
+    date: '2026-10-28',
+    changes: [
+      { type: 'fix', text: 'Estadísticas: más separación entre el selector de periodo y los contadores.' }
+    ]
+  },
   {
     version: '1.1.0',
     date: '2026-10-28',
@@ -39,3 +73,13 @@ export const CHANGELOG = [
     ]
   }
 ];
+
+/** Compara versiones SemVer: <0 si a<b, 0 si iguales, >0 si a>b. */
+export function compareVersions(a, b) {
+  const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}

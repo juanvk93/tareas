@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
   <title>Tareas del Hogar</title>
-  <meta name="description" content="Reparto y control de tareas del hogar para parejas y familias.">
+  <meta name="description" content="Lista compartida de tareas del hogar y pendientes para parejas y familias.">
 
   <!-- PWA -->
   <link rel="manifest" href="manifest.webmanifest">
@@ -25,8 +25,8 @@
       <div class="app-header__title">
         <span class="app-header__logo" aria-hidden="true" data-icon="home"></span>
         <div>
-          <h1>Tareas del Hogar</h1>
-          <span class="app-header__version" id="header-version">v0.0.0</span>
+          <h1 id="header-title">Tareas del Hogar</h1>
+          <button class="app-header__version" id="header-version" title="Ver novedades">v0.0.0</button>
         </div>
       </div>
       <button class="icon-btn" id="btn-sync" title="Sincronizar" aria-label="Sincronizar">
@@ -42,14 +42,14 @@
       <button class="tabbar__item is-active" data-view="hoy">
         <span class="tabbar__icon" data-icon="home"></span><span class="tabbar__label">Hoy</span>
       </button>
-      <button class="tabbar__item" data-view="semana">
-        <span class="tabbar__icon" data-icon="calendar"></span><span class="tabbar__label">Semana</span>
+      <button class="tabbar__item" data-view="proximas">
+        <span class="tabbar__icon" data-icon="calendar"></span><span class="tabbar__label">Próximas</span>
       </button>
-      <button class="tabbar__item" data-view="tareas">
-        <span class="tabbar__icon" data-icon="list"></span><span class="tabbar__label">Tareas</span>
+      <button class="tabbar__item" data-view="hechas">
+        <span class="tabbar__icon" data-icon="check-circle"></span><span class="tabbar__label">Hechas</span>
       </button>
-      <button class="tabbar__item" data-view="stats">
-        <span class="tabbar__icon" data-icon="chart"></span><span class="tabbar__label">Stats</span>
+      <button class="tabbar__item" data-view="grupo">
+        <span class="tabbar__icon" data-icon="users"></span><span class="tabbar__label">Grupo</span>
       </button>
       <button class="tabbar__item" data-view="ajustes">
         <span class="tabbar__icon" data-icon="settings"></span><span class="tabbar__label">Ajustes</span>

@@ -1,21 +1,23 @@
 # 🏠 Tareas del Hogar
 
-PWA para controlar y repartir las tareas de casa entre una pareja o familia. Funciona
-offline, se instala como app y **opcionalmente** sincroniza los datos entre varios móviles
-usando una Google Sheet. Sin servidores, sin cuentas: se publica en **GitHub Pages**.
+Lista **compartida** de tareas pendientes para una pareja o familia, al estilo de las apps de
+lista de la compra (tipo *Bring*), pero para las tareas de casa y otros recados. Funciona
+offline, se instala como app y se publica en **GitHub Pages**: sin servidores propios ni
+cuentas. Los datos se comparten a través de **tu** Google Sheet.
 
-## ✨ Características
+## ✨ Cómo funciona
 
-- ✅ Crear y eliminar tareas (fregar, aspiradora, baño, basura…) y personas del hogar.
-- 🗓️ Planificador **semanal**: reparte tareas por día y por persona.
-- 📝 Apuntar tareas realizadas y ver la actividad del día.
-- 📊 Estadísticas: **quién hace más**, porcentajes, puntos por esfuerzo y ranking.
-- 👨‍👩‍👧 Sincronización familiar opcional (Google Sheets) para compartir los mismos datos.
-- 🔔 Notificaciones al móvil con **ntfy** cuando alguien crea o completa una tarea.
-- 🔗 Compartir la configuración con tu pareja mediante un enlace.
-- 🌙 Tema oscuro por defecto + claro. Color de acento configurable.
-- 💾 Datos en el dispositivo (IndexedDB) con almacenamiento persistente.
-- 📲 Instalable como PWA y funcionamiento offline.
+- 👥 **Grupo** (p. ej. «Tareas Hogar»): lo crea una persona y los demás se unen con una
+  invitación. Cada móvil define **su persona** («Juan», «Ana»…).
+- 🟦 **Hoy:** las tareas pendientes en casillas grandes. Un toque la marca como **resuelta**
+  (para todos). Mantén pulsado para editarla.
+- ➕ **Añadir:** escribe en «¿Qué hay que hacer?» o toca una tarea del catálogo (Limpieza,
+  Ropa, Cocina y compra, Basura, Mascotas y plantas, Otros) o de *Recientes*.
+- 📅 **Próximas:** con el botón **+** planificas tareas para otro día y, si quieres, que se
+  **repitan** cada día, semana o mes, o que le toquen a alguien en concreto.
+- ✅ **Hechas:** historial y quién ha resuelto cuántas esta semana.
+- 🔔 **Avisos al móvil** con **ntfy** cuando alguien añade o resuelve una tarea.
+- 🌙 Tema oscuro por defecto + claro. 💾 Datos en el móvil (IndexedDB, persistente). 📲 Offline.
 
 ## 🚀 Publicar en GitHub Pages
 
@@ -27,59 +29,58 @@ usando una Google Sheet. Sin servidores, sin cuentas: se publica en **GitHub Pag
 
 > Las rutas son relativas, así que funciona igual en la raíz o en un subdirectorio del repo.
 
-## 👨‍👩‍👧 Compartir datos con tu pareja o familia (opcional)
+## 👥 Montar el grupo (una vez)
 
-La app funciona perfectamente **solo en local**. Si quieres que varios móviles compartan la
-misma información, monta un pequeño backend gratuito con Google Sheets (5 minutos, una vez):
+**Quien crea el grupo (p. ej. Juan):**
+
+1. Abre la app → **Crear grupo** → nombre del grupo (*Tareas Hogar*) y tu nombre (*Juan*).
+2. Conecta Google Sheets (5 minutos, ver abajo) en **Grupo → Compartir tareas**.
+3. Pulsa **Grupo → Invitar a alguien** y envía el enlace por WhatsApp/Signal.
+
+**Quien se une (p. ej. Ana):**
+
+1. Abre el enlace → escribe tu nombre (*Ana*) → **Unirme**. Ya veis las mismas tareas y los
+   dos aparecéis en **Grupo → Miembros**.
+2. **En iPhone**, la app instalada en la pantalla de inicio no comparte datos con Safari:
+   copia el enlace, abre la app instalada → **Unirme a un grupo** → pégalo ahí.
+
+> La invitación incluye la URL de la hoja, la clave y el tema de avisos: compártela solo por
+> un canal privado.
+
+### Conectar Google Sheets
 
 1. Crea una **Google Sheet** nueva (hoja de cálculo en blanco).
 2. Menú **Extensiones → Apps Script**.
 3. Borra el contenido y pega el código de [`apps-script/Code.gs`](apps-script/Code.gs)
-   (también puedes copiarlo desde la propia app: **Ajustes → Cómo configurar Google Sheets**).
+   (también puedes copiarlo desde la app: **Grupo → Cómo configurar Google Sheets**).
 4. **Implementar → Nueva implementación → Aplicación web**:
    - *Ejecutar como*: **Yo**
    - *Quién tiene acceso*: **Cualquier persona**
 5. Autoriza el script cuando lo pida (es tuyo, es seguro).
-6. Copia la **URL** que termina en `/exec`.
-7. En la app: **Ajustes → Sincronización → URL del Web App**, pega la URL y pulsa
-   **Guardar y sincronizar**.
-8. Pega **esa misma URL** en el móvil de tu pareja/familia. ¡Listo! Todos verán los mismos datos.
+6. Copia la **URL** que termina en `/exec`, pégala en **Grupo → Compartir tareas** y pulsa **Guardar**.
 
-**Seguridad (opcional):** en `Code.gs` puedes poner una `SECRET`. Si lo haces, escribe la misma
-clave en **Ajustes → Clave secreta** en cada dispositivo. Así solo quien conozca la clave puede
-leer/escribir aunque alguien descubra la URL.
+**Seguridad (opcional):** en `Code.gs` puedes poner una `SECRET` y escribir la misma clave en
+**Grupo → Clave secreta**. La invitación ya la incluye, así que tu pareja no tiene que teclearla.
 
-## 🔔 Notificaciones en el móvil (ntfy, opcional)
+La app sincroniza al abrirla, al volver a ella, al recuperar la conexión, tras cada cambio y
+cada minuto mientras está abierta.
 
-Cuando alguien **crea** una tarea (en el catálogo o en la planificación semanal) o la
-**completa**, todos los móviles del hogar reciben un aviso. Se usa [ntfy](https://ntfy.sh),
-gratuito y sin cuentas:
+## 🔔 Avisos en el móvil (ntfy)
 
-1. Instala la app **ntfy** en cada móvil
-   ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) ·
+Al crear el grupo se genera un **tema** de [ntfy](https://ntfy.sh) (p. ej.
+`tareas-hogar-k3j9x2m1qa`) y viaja en la invitación. En cada móvil:
+
+1. Instala **ntfy** ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) ·
    [iPhone](https://apps.apple.com/app/ntfy/id1625396347)).
-2. En la app Tareas: **Ajustes → Notificaciones**, pulsa el botón de la llave para generar
-   un tema (p. ej. `tareas-hogar-k3j9x2m1qa`), activa los avisos y pulsa **Guardar**.
-3. En ntfy pulsa **+** y suscríbete a **ese mismo tema**. Si lo permite, ponle como nombre
-   visible **Tareas Hogar**.
-4. Pulsa **Probar** para recibir un aviso de prueba.
+2. Pulsa **+** y suscríbete al tema que aparece en **Grupo → Avisos al móvil** (si lo permite,
+   ponle como nombre visible el del grupo).
+3. Pulsa **Probar**.
 
-> Los nombres de tema de ntfy no admiten espacios: el "grupo" *Tareas Hogar* es el título de
-> los avisos y el nombre visible en la app ntfy; el tema real es el identificador aleatorio.
-> En ntfy.sh **quien conozca el tema puede leer los avisos**, así que no lo publiques.
-> Si quieres control total, ntfy se puede instalar en tu propio servidor (campo *Servidor ntfy*).
+> Los temas de ntfy no admiten espacios: «Tareas Hogar» es el título de los avisos y el tema
+> real es el identificador aleatorio. En ntfy.sh **quien conozca el tema puede leer los
+> avisos**; si quieres control total, ntfy se puede instalar en tu propio servidor.
 
-Si no hay conexión, el aviso se guarda y se envía al recuperar la red (máximo 24 h).
-
-## 🔗 Configurar el móvil de tu pareja en un paso
-
-**Ajustes → Compartir con tu pareja → Compartir configuración** genera un enlace con la URL de
-sincronización, la clave y el tema de ntfy. Envíalo por un canal privado (WhatsApp, Signal…).
-
-- Si lo abre directamente, la app ofrece aplicarlo.
-- **En iPhone**, la app instalada en la pantalla de inicio no comparte datos con Safari: es
-  mejor copiar el enlace y pegarlo en **Ajustes → «¿Te la han enviado? Pégala aquí»**
-  dentro de la app instalada.
+Sin conexión, el aviso se guarda y se envía al recuperar la red (máximo 24 h).
 
 ## 🧑‍💻 Desarrollo en local
 
@@ -93,16 +94,14 @@ python3 -m http.server 8765
 ## 🗂️ Versión y cambios
 
 La versión actual y el historial están en la app: **Ajustes → Acerca de → Novedades**.
-El detalle técnico del versionado está en [`CLAUDE.md`](CLAUDE.md) y [`js/changelog.js`](js/changelog.js).
+El detalle técnico está en [`CLAUDE.md`](CLAUDE.md) y [`js/changelog.js`](js/changelog.js).
 
 ## 🔒 Privacidad
 
-Los datos se guardan en tu dispositivo (IndexedDB). Si activas la sincronización, se guardan
-además en **tu** Google Sheet, bajo tu cuenta de Google. Si activas las notificaciones, el
-texto de cada aviso (nombre de la persona y de la tarea) pasa por el servidor ntfy elegido.
-No hay analítica.
+Los datos se guardan en tu dispositivo (IndexedDB) y en **tu** Google Sheet, bajo tu cuenta de
+Google. El texto de cada aviso (nombre de la persona y de la tarea) pasa por el servidor ntfy
+elegido. No hay analítica.
 
 **Persistencia:** la app pide almacenamiento persistente para que el navegador no borre los
 datos. Instalarla en la pantalla de inicio ayuda a que se conceda (y en iPhone es lo que evita
-el borrado automático de Safari). Con la sincronización activa, la Google Sheet hace además
-de copia de seguridad.
+el borrado automático de Safari). La Google Sheet hace además de copia de seguridad.

@@ -6,7 +6,7 @@
  * la actualización de la caché en los dispositivos. Debe coincidir con la
  * versión declarada en js/changelog.js.
  */
-const CACHE_VERSION = 'v1.1.0';
+const CACHE_VERSION = 'v2.1.0';
 const CACHE_NAME = `tareas-hogar-${CACHE_VERSION}`;
 
 const APP_SHELL = [
@@ -17,10 +17,11 @@ const APP_SHELL = [
   './js/app.js',
   './js/db.js',
   './js/sync.js',
-  './js/stats.js',
   './js/changelog.js',
   './js/icons.js',
   './js/notify.js',
+  './js/dates.js',
+  './js/catalog.js',
   './icons/icon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',

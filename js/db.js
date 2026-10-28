@@ -1,21 +1,26 @@
 /* Capa de datos sobre IndexedDB.
  *
- * Almacenes (object stores):
- *   - members  : personas del hogar        {id, name, color, emoji, updatedAt, deleted}
- *   - tasks    : catálogo de tareas         {id, name, icon, points, updatedAt, deleted}
- *                (los registros de la v1.0.0 llevan `emoji` en vez de `icon`; ver icons.js)
- *   - log      : registro de realizadas     {id, taskId, memberId, ts, points, note, updatedAt, deleted}
- *   - schedule : planificación semanal       {id, weekKey, day, taskId, memberId, updatedAt, deleted}
- *   - meta     : ajustes/config              {key, value}
+ * Almacenes (object stores) que se sincronizan con el grupo:
+ *   - members : miembros del grupo   {id, name, color, updatedAt, deleted}
+ *   - todos   : tareas pendientes    {id, title, icon, dueDate, repeat, assignee, note,
+ *                                     done, doneAt, doneBy, createdBy, createdAt,
+ *                                     seriesId, updatedAt, deleted}
+ * Y uno local:
+ *   - meta    : ajustes/config       {key, value}
+ *
+ * Los almacenes tasks/log/schedule de la v1.x se conservan sin usar (no se
+ * borran datos al actualizar), pero ya no se leen ni se sincronizan.
  *
  * Los borrados son "blandos" (deleted:true + updatedAt) para poder
  * sincronizarlos entre dispositivos (tombstones). La interfaz filtra los
  * registros con deleted:true.
  */
+import { nextDue } from './dates.js';
 
 const DB_NAME = 'tareas-hogar';
-const DB_VERSION = 1;
-export const DATA_STORES = ['members', 'tasks', 'log', 'schedule'];
+const DB_VERSION = 2;
+export const DATA_STORES = ['members', 'todos'];
+const LEGACY_STORES = ['tasks', 'log', 'schedule'];
 
 let _db = null;
 
@@ -25,7 +30,7 @@ export function openDB() {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
-      for (const s of DATA_STORES) {
+      for (const s of [...DATA_STORES, ...LEGACY_STORES]) {
         if (!db.objectStoreNames.contains(s)) db.createObjectStore(s, { keyPath: 'id' });
       }
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
@@ -68,12 +73,14 @@ export async function clearStore(store) {
 const DEFAULT_SETTINGS = {
   accent: '#4f8cff',
   theme: 'dark',
+  lastSeenVersion: '', // Última versión cuyas novedades se mostraron en este móvil.
+  // Grupo
+  groupName: '',
+  currentMemberId: null,
   syncUrl: '',
   syncSecret: '',
-  currentMemberId: null,
   autoSync: true,
   lastSyncAt: 0,
-  // Notificaciones (ntfy)
   notifyEnabled: false,
   ntfyServer: 'https://ntfy.sh',
   ntfyTopic: ''
@@ -97,17 +104,16 @@ export function uid() {
   return 'id-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
 }
 
-/* --------------------- Operaciones de alto nivel ------------------------- */
-// Personas
-export async function addMember({ name, color, emoji }) {
-  const rec = { id: uid(), name: name.trim(), color, emoji: emoji || '', updatedAt: Date.now(), deleted: false };
+/* --------------------------- Miembros del grupo -------------------------- */
+export async function addMember({ name, color }) {
+  const rec = { id: uid(), name: name.trim(), color, updatedAt: Date.now(), deleted: false };
   await putRaw('members', rec);
   return rec;
 }
 export async function updateMember(id, patch) {
   const rec = await getOne('members', id);
   if (!rec) return null;
-  Object.assign(rec, patch, { updatedAt: Date.now() });
+  Object.assign(rec, patch, { deleted: false, updatedAt: Date.now() });
   await putRaw('members', rec);
   return rec;
 }
@@ -119,60 +125,68 @@ export async function deleteMember(id) {
 }
 export function members() { return getActive('members'); }
 
-// Tareas (catálogo)
-export async function addTask({ name, icon, points }) {
-  const rec = { id: uid(), name: name.trim(), icon: icon || 'sparkles', points: Number(points) || 1, updatedAt: Date.now(), deleted: false };
-  await putRaw('tasks', rec);
-  return rec;
-}
-export async function updateTask(id, patch) {
-  const rec = await getOne('tasks', id);
-  if (!rec) return null;
-  Object.assign(rec, patch, { updatedAt: Date.now() });
-  await putRaw('tasks', rec);
-  return rec;
-}
-export async function deleteTask(id) {
-  const rec = await getOne('tasks', id);
-  if (!rec) return;
-  rec.deleted = true; rec.updatedAt = Date.now();
-  await putRaw('tasks', rec);
-}
-export function tasks() { return getActive('tasks'); }
-
-// Registro de tareas realizadas
-export async function logCompletion({ taskId, memberId, ts, points, note }) {
+/* ---------------------------- Tareas pendientes -------------------------- */
+export async function addTodo({ title, icon, dueDate, repeat, assignee, note, createdBy }) {
+  const id = uid();
   const rec = {
-    id: uid(), taskId, memberId,
-    ts: ts || Date.now(),
-    points: Number(points) || 0,
-    note: note || '',
+    id, title: title.trim(), icon: icon || 'sparkles', dueDate,
+    repeat: repeat || 'none', assignee: assignee || null, note: note || '',
+    done: false, doneAt: 0, doneBy: null,
+    createdBy: createdBy || null, createdAt: Date.now(),
+    seriesId: id,
     updatedAt: Date.now(), deleted: false
   };
-  await putRaw('log', rec);
+  await putRaw('todos', rec);
   return rec;
 }
-export async function deleteLog(id) {
-  const rec = await getOne('log', id);
+export async function updateTodo(id, patch) {
+  const rec = await getOne('todos', id);
+  if (!rec) return null;
+  Object.assign(rec, patch, { updatedAt: Date.now() });
+  await putRaw('todos', rec);
+  return rec;
+}
+export async function deleteTodo(id) {
+  const rec = await getOne('todos', id);
   if (!rec) return;
   rec.deleted = true; rec.updatedAt = Date.now();
-  await putRaw('log', rec);
+  await putRaw('todos', rec);
 }
-export function logs() { return getActive('log'); }
+export function todos() { return getActive('todos'); }
 
-// Planificación semanal
-export async function addAssignment({ weekKey, day, taskId, memberId }) {
-  const rec = { id: uid(), weekKey, day, taskId, memberId, updatedAt: Date.now(), deleted: false };
-  await putRaw('schedule', rec);
+/** Id determinista de la siguiente repetición: si los dos móviles resuelven
+ * la misma tarea a la vez, generan el mismo registro y no se duplica. */
+function occurrenceId(seriesId, dueDate) { return `${seriesId}@${dueDate}`; }
+
+/**
+ * Marca una tarea como resuelta. Si se repite, crea la siguiente.
+ * Devuelve { todo, next } (next = nueva repetición o null).
+ */
+export async function completeTodo(id, memberId) {
+  const rec = await updateTodo(id, { done: true, doneAt: Date.now(), doneBy: memberId || null });
+  if (!rec || rec.repeat === 'none') return { todo: rec, next: null };
+  const due = nextDue(rec.dueDate, rec.repeat);
+  const nextId = occurrenceId(rec.seriesId || rec.id, due);
+  const existing = await getOne('todos', nextId);
+  if (existing && !existing.deleted) return { todo: rec, next: existing };
+  const next = Object.assign({}, rec, {
+    id: nextId, dueDate: due, done: false, doneAt: 0, doneBy: null,
+    seriesId: rec.seriesId || rec.id, createdAt: Date.now(),
+    updatedAt: Date.now(), deleted: false
+  });
+  await putRaw('todos', next);
+  return { todo: rec, next };
+}
+
+/** Deshace "resuelta". Quita la repetición que se generó si nadie la ha tocado. */
+export async function reopenTodo(id) {
+  const rec = await updateTodo(id, { done: false, doneAt: 0, doneBy: null });
+  if (!rec || rec.repeat === 'none') return rec;
+  const nextId = occurrenceId(rec.seriesId || rec.id, nextDue(rec.dueDate, rec.repeat));
+  const next = await getOne('todos', nextId);
+  if (next && !next.deleted && !next.done) await deleteTodo(nextId);
   return rec;
 }
-export async function deleteAssignment(id) {
-  const rec = await getOne('schedule', id);
-  if (!rec) return;
-  rec.deleted = true; rec.updatedAt = Date.now();
-  await putRaw('schedule', rec);
-}
-export function assignments() { return getActive('schedule'); }
 
 /* ------------------- Almacenamiento persistente -------------------------- */
 export async function requestPersistentStorage() {
@@ -193,9 +207,9 @@ export async function exportAll() {
   for (const s of DATA_STORES) data[s] = await getAllRaw(s);
   const settings = await getSettings();
   // No exportamos claves de sincronización ni el tema de ntfy por seguridad;
-  // el usuario las reintroduce (o usa "Compartir configuración").
+  // el usuario las reintroduce (o usa la invitación del grupo).
   const safeSettings = Object.assign({}, settings, { syncUrl: '', syncSecret: '', ntfyTopic: '' });
-  return { app: 'tareas-hogar', exportedAt: Date.now(), stores: data, settings: safeSettings };
+  return { app: 'tareas-hogar', version: 2, exportedAt: Date.now(), stores: data, settings: safeSettings };
 }
 export async function importAll(payload, { merge = true } = {}) {
   if (!payload || !payload.stores) throw new Error('Archivo no válido');

@@ -1,7 +1,7 @@
 {
   "name": "Tareas del Hogar",
   "short_name": "Tareas",
-  "description": "Reparto y control de tareas del hogar para parejas y familias.",
+  "description": "Lista compartida de tareas del hogar y pendientes para parejas y familias.",
   "lang": "es",
   "dir": "ltr",
   "start_url": "./index.html",

@@ -3,8 +3,7 @@
  * Uso: icon('home') devuelve el <svg> como string para insertarlo en el HTML.
  * El tamaño sigue al font-size del contenedor (1em), salvo que se pase otro.
  *
- * Las tareas guardan la clave del icono en el campo `icon`. Los registros
- * antiguos (v1.0.0) tenían un emoji en `emoji`: taskIcon() los traduce.
+ * Las tareas guardan la clave del icono en el campo `icon`.
  */
 
 const PATHS = {
@@ -35,6 +34,15 @@ const PATHS = {
   share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>',
   send: '<path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z"/>',
   heart: '<path d="M12 20s-7-4.4-9-9A4.8 4.8 0 0 1 12 6a4.8 4.8 0 0 1 9 5c-2 4.6-9 9-9 9Z"/>',
+  repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+  alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16.5h.01"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>',
+  edit: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/>',
+  history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  'check-circle': '<circle cx="12" cy="12" r="9"/><path d="m8 12.5 3 3 5-6"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  note: '<path d="M4 6h16M4 12h16M4 18h10"/>',
   key: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.8-9.8M17 6l3 3M14.5 8.5l2 2"/>',
 
   /* ------------------------------- Tareas ------------------------------- */
@@ -68,24 +76,8 @@ export const TASK_ICONS = [
   'iron', 'cooking', 'cart', 'paw', 'plant', 'window', 'bed', 'bucket', 'droplet', 'car', 'pill', 'box'
 ];
 
-/* Equivalencias de los emojis de la v1.0.0 con los iconos nuevos. */
-const EMOJI_TO_ICON = {
-  '🧽': 'sparkles', '🍽️': 'dishes', '🍽': 'dishes', '🧹': 'broom', '🧴': 'spray', '🚽': 'toilet',
-  '🛁': 'bath', '🗑️': 'trash', '🗑': 'trash', '🧺': 'basket', '👕': 'shirt', '🍳': 'cooking',
-  '🛒': 'cart', '🐕': 'paw', '🌱': 'plant', '🪟': 'window', '🛏️': 'bed', '🛏': 'bed', '🧻': 'box',
-  '🚗': 'car', '💊': 'pill', '📦': 'box', '🧼': 'droplet'
-};
-
 export function icon(name, { size, cls = '' } = {}) {
   const body = PATHS[name] || PATHS.help;
   const dim = size ? ` width="${size}" height="${size}"` : '';
   return `<svg class="ico ${cls}"${dim} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 }
-
-/** Clave de icono de una tarea (con compatibilidad para registros con emoji). */
-export function taskIconName(task) {
-  if (!task) return 'help';
-  if (task.icon && PATHS[task.icon]) return task.icon;
-  return EMOJI_TO_ICON[task.emoji] || 'sparkles';
-}
-export function taskIcon(task, opts) { return icon(taskIconName(task), opts); }

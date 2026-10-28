@@ -22,11 +22,14 @@ export function isValidTopic(topic) {
   return /^[-_A-Za-z0-9]{1,64}$/.test(topic || '');
 }
 
-/** Genera un tema difícil de adivinar: en ntfy.sh quien conoce el tema puede leerlo. */
-export function randomTopic() {
+/** Genera un tema difícil de adivinar a partir del nombre del grupo
+ * (en ntfy.sh quien conoce el tema puede leer los avisos). */
+export function randomTopic(groupName = 'Tareas Hogar') {
+  const slug = groupName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'tareas';
   const bytes = crypto.getRandomValues(new Uint8Array(6));
   const suffix = [...bytes].map((b) => b.toString(36).padStart(2, '0')).join('').slice(0, 10);
-  return `tareas-hogar-${suffix}`;
+  return `${slug}-${suffix}`;
 }
 
 function serverBase(server) {
@@ -67,7 +70,7 @@ export async function notify(n) {
   if (!isConfigured(s)) return { sent: false, reason: 'off' };
   const msg = {
     topic: s.ntfyTopic,
-    title: n.title || 'Tareas Hogar',
+    title: n.title || s.groupName || 'Tareas Hogar',
     message: n.message,
     tags: n.tags || [],
     priority: n.priority || 3,
@@ -105,11 +108,11 @@ export async function flushQueue() {
 }
 
 /** Envío de prueba con la configuración indicada (sin cola: queremos ver el error). */
-export async function testNotify(server, topic) {
+export async function testNotify(server, topic, title = 'Tareas Hogar') {
   if (!isValidTopic(topic)) throw new Error('Tema no válido');
   await publish(server, {
     topic,
-    title: 'Tareas Hogar',
+    title,
     message: 'Notificación de prueba: ¡todo listo!',
     tags: ['house'],
     click: appUrl()
