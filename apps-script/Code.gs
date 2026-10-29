@@ -1,5 +1,5 @@
 /**
- * Backend de sincronización para la PWA "Tareas del Hogar".
+ * Backend de sincronización para la PWA "Tareas".
  *
  * INSTALACIÓN
  * ===========

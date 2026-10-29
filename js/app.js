@@ -4,8 +4,8 @@ import { syncNow, testConnection } from './sync.js';
 import { APP_VERSION, CHANGELOG, compareVersions } from './changelog.js';
 import { icon, TASK_ICONS } from './icons.js';
 import { notify, flushQueue, testNotify, randomTopic, isValidTopic, topicUrl } from './notify.js';
-import { ymd, parseYmd, todayKey, addDays, REPEATS } from './dates.js';
-import { CATALOG, searchCatalog, guessIcon, normalizeTitle } from './catalog.js';
+import { ymd, parseYmd, todayKey, addDays, nextDue, currentDue, REPEATS } from './dates.js';
+import { searchItems, guessIcon, normalizeTitle } from './catalog.js';
 
 /* =============================== Constantes ============================== */
 const ACCENTS = ['#4f8cff', '#7c5cff', '#ff5c8a', '#ff7a45', '#f5b545', '#35c98b', '#22c3d6', '#8b5cf6', '#ef4444', '#14b8a6'];
@@ -15,7 +15,7 @@ const PERSONAL_GROUP = 'Mis tareas'; // Nombre propuesto para el grupo privado.
 
 /* Código de Google Apps Script que el usuario debe pegar (copiar botón). */
 const APPS_SCRIPT_CODE = `/**
- * Backend de sincronizacion para "Tareas del Hogar".
+ * Backend de sincronizacion para "Tareas".
  * Pegar en Extensiones > Apps Script y desplegar como Aplicacion web
  * (Ejecutar como: Yo | Quien tiene acceso: Cualquier persona).
  */
@@ -173,6 +173,8 @@ function dueForText(key) {
 /** Configuración del grupo activo (o null si este móvil aún no tiene grupos). */
 const G = () => db.activeGroup(state.settings);
 function hasGroup() { return !!G(); }
+/** Fecha que toca ahora a una tarea (ver currentDue: agrupa repeticiones perdidas). */
+const dueOf = (t) => currentDue(t.dueDate, t.repeat);
 
 /* ================================ Toasts ================================= */
 function toast(msg, type = '', { action } = {}) {
@@ -243,7 +245,7 @@ function applyShell() {
   const g = G();
   document.body.classList.toggle('no-group', !g);
   document.body.classList.toggle('is-personal', !!(g && g.personal));
-  $('#header-title').textContent = g ? g.name : 'Tareas del Hogar';
+  $('#header-title').textContent = g ? g.name : 'Tareas';
   $('#group-switch').disabled = !g;
   $('#group-switch-icon').innerHTML = g ? icon(g.personal ? 'lock' : 'users') : '';
 }
@@ -376,23 +378,27 @@ function avatar(m, size = 'sm') {
 }
 function todoRow(t, memById, { hideDate = false } = {}) {
   const today = todayKey();
-  const overdue = !t.done && t.dueDate < today;
+  const due = t.done ? t.dueDate : dueOf(t);
+  const overdue = !t.done && due < today;
   const meta = [];
   if (t.done) {
     const by = memById.get(t.doneBy);
     meta.push(`<span class="meta-item">${icon('check-circle')}${by ? esc(by.name) : 'Resuelta'} · ${relativeDay(t.doneAt)} ${fmtTime(t.doneAt)}</span>`);
   } else if (overdue) {
-    meta.push(`<span class="meta-item meta-item--danger">${icon('alert')}${esc(dueLabel(t.dueDate))}</span>`);
-  } else if (t.dueDate !== today && !hideDate) {
-    meta.push(`<span class="meta-item">${icon('calendar')}${esc(dueLabel(t.dueDate))}</span>`);
+    meta.push(`<span class="meta-item meta-item--danger">${icon('alert')}${esc(dueLabel(due))}</span>`);
+  } else if (due !== today && !hideDate) {
+    meta.push(`<span class="meta-item">${icon('calendar')}${esc(dueLabel(due))}</span>`);
   }
   const who = memById.get(t.assignee);
   if (who && !t.done) meta.push(`<span class="meta-item">${avatar(who, 'xs')}${esc(who.name)}</span>`);
   if (t.repeat && t.repeat !== 'none') meta.push(`<span class="meta-item">${icon('repeat')}${esc(REPEATS[t.repeat])}</span>`);
   if (t.note) meta.push(`<span class="meta-item">${icon('note')}${esc(t.note)}</span>`);
 
-  return `<div class="todo ${t.done ? 'is-done' : ''} ${overdue ? 'is-overdue' : ''}">
-    <button class="todo__check" data-check="${esc(t.id)}" aria-label="${t.done ? 'Marcar como pendiente' : 'Marcar como resuelta'}">${icon('check')}</button>
+  const check = t.projected
+    ? `<span class="todo__check todo__check--projected" title="Repetición prevista">${icon('repeat')}</span>`
+    : `<button class="todo__check" data-check="${esc(t.id)}" aria-label="${t.done ? 'Marcar como pendiente' : 'Marcar como resuelta'}">${icon('check')}</button>`;
+  return `<div class="todo ${t.done ? 'is-done' : ''} ${overdue ? 'is-overdue' : ''} ${t.projected ? 'is-projected' : ''}">
+    ${check}
     <div class="todo__body" data-open="${esc(t.id)}">
       <div class="todo__title">${icon(t.icon || 'sparkles')}<span>${esc(t.title)}</span></div>
       ${meta.length ? `<div class="todo__meta">${meta.join('')}</div>` : ''}
@@ -417,8 +423,8 @@ const fab = (label) => `<button class="fab" id="fab-add" aria-label="${esc(label
 
 /* ============================ Vista: HOY ================================ */
 /* Inspirada en las listas de la compra tipo Bring: arriba las pendientes en
- * casillas de color (un toque = resuelta), debajo recientes y catálogo en
- * casillas grises (un toque = pendiente para hoy). */
+ * casillas de color (un toque = resuelta), debajo recientes y el catálogo del
+ * grupo por categorías (un toque = pendiente para hoy). */
 function tile({ title, iconName, active, overdue, cls = '', extra = '', attrs = '' }) {
   return `<button class="tile ${active ? 'tile--active' : ''} ${overdue ? 'tile--overdue' : ''} ${cls}" ${attrs}>
     ${extra}
@@ -427,30 +433,37 @@ function tile({ title, iconName, active, overdue, cls = '', extra = '', attrs = 
   </button>`;
 }
 
-async function renderHoy() {
-  const [members, all] = await Promise.all([db.members(G().id), db.todos(G().id)]);
-  const memById = new Map(members.map((m) => [m.id, m]));
-  const today = todayKey();
-  const pending = all.filter((t) => !t.done && t.dueDate <= today)
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.createdAt - b.createdAt);
-  const doneToday = all.filter((t) => t.done && ymd(new Date(t.doneAt)) === today).sort((a, b) => b.doneAt - a.doneAt);
-  const pendingByTitle = new Map(pending.map((t) => [normalizeTitle(t.title), t]));
-  const upcomingCount = all.filter((t) => !t.done && t.dueDate > today).length;
-
-  // Recientes: títulos usados que no están en el catálogo ni pendientes ahora.
-  const catalogTitles = new Set(CATALOG.flatMap((c) => c.items.map((i) => normalizeTitle(i.name))));
+/** Datos del catálogo del grupo activo + títulos "recientes" (usados pero no guardados). */
+async function loadCatalog(all) {
+  const gid = G().id;
+  const [cats, its] = await Promise.all([db.categories(gid), db.items(gid)]);
+  const itemTitles = new Set(its.map((i) => normalizeTitle(i.name)));
   const recent = [];
   const seen = new Set();
   for (const t of [...all].sort((a, b) => (b.doneAt || b.createdAt) - (a.doneAt || a.createdAt))) {
     const k = normalizeTitle(t.title);
-    if (seen.has(k) || catalogTitles.has(k) || pendingByTitle.has(k)) continue;
-    seen.add(k); recent.push(t);
+    if (seen.has(k) || itemTitles.has(k)) continue;
+    seen.add(k); recent.push({ name: t.title, icon: t.icon });
     if (recent.length >= 8) break;
   }
+  return { cats, its, recent, itemByTitle: new Map(its.map((i) => [normalizeTitle(i.name), i])) };
+}
+
+async function renderHoy() {
+  const [members, all] = await Promise.all([db.members(G().id), db.todos(G().id)]);
+  const { cats, its, recent, itemByTitle } = await loadCatalog(all);
+  const memById = new Map(members.map((m) => [m.id, m]));
+  const today = todayKey();
+  const pending = all.filter((t) => !t.done && t.dueDate <= today)
+    .sort((a, b) => dueOf(a).localeCompare(dueOf(b)) || a.createdAt - b.createdAt);
+  const doneToday = all.filter((t) => t.done && ymd(new Date(t.doneAt)) === today).sort((a, b) => b.doneAt - a.doneAt);
+  const pendingByTitle = new Map(pending.map((t) => [normalizeTitle(t.title), t]));
+  const upcomingCount = all.filter((t) => !t.done && t.dueDate > today).length;
+  const recentFree = recent.filter((r) => !pendingByTitle.has(normalizeTitle(r.name)));
 
   const pendingTile = (t) => {
     const who = memById.get(t.assignee);
-    const overdue = t.dueDate < today;
+    const overdue = dueOf(t) < today;
     const badges = [
       overdue ? `<span class="tile__badge tile__badge--danger" title="Atrasada">${icon('alert')}</span>` : '',
       t.repeat !== 'none' ? `<span class="tile__badge" title="${esc(REPEATS[t.repeat])}">${icon('repeat')}</span>` : '',
@@ -460,11 +473,14 @@ async function renderHoy() {
       extra: badges ? `<span class="tile__badges">${badges}</span>` : '',
       attrs: `data-tile-todo="${esc(t.id)}" aria-label="Resolver ${esc(t.title)}"` });
   };
-  const addTile = (title, iconName) => {
-    const p = pendingByTitle.get(normalizeTitle(title));
+  // Casilla de una tarea habitual o reciente: si ya está pendiente sale en color.
+  const addTile = (name, iconName, itemId = '') => {
+    const p = pendingByTitle.get(normalizeTitle(name));
     if (p) return pendingTile(p);
-    return tile({ title, iconName, attrs: `data-tile-add="${esc(title)}" data-tile-icon="${esc(iconName)}" aria-label="Añadir ${esc(title)}"` });
+    return tile({ title: name, iconName, attrs: `data-tile-add="${esc(name)}" data-tile-icon="${esc(iconName)}" ${itemId ? `data-item-id="${esc(itemId)}"` : ''} aria-label="Añadir ${esc(name)}"` });
   };
+  const newItemTile = (catId) => `<button class="tile tile--add" data-new-item="${esc(catId)}" aria-label="Nueva tarea habitual">
+      <span class="tile__icon">${icon('plus')}</span><span class="tile__name">Nueva</span></button>`;
 
   let html = `
     <div class="list-head">
@@ -492,18 +508,31 @@ async function renderHoy() {
   if (state.showDoneToday && doneToday.length) {
     html += `<div class="section-title"><h2>Resueltas hoy</h2></div>` + todoList(doneToday, memById);
   }
-  if (recent.length) {
-    html += `<div class="section-title"><h2>Recientes</h2></div><div class="tiles">${recent.map((t) => addTile(t.title, t.icon)).join('')}</div>`;
+  if (recentFree.length) {
+    html += `<div class="section-title"><h2>Recientes</h2></div><div class="tiles">${recentFree.map((r) => addTile(r.name, r.icon)).join('')}</div>`;
   }
-  for (const cat of CATALOG) {
-    html += `<div class="section-title"><h2>${esc(cat.name)}</h2></div><div class="tiles">${cat.items.map((it) => addTile(it.name, it.icon)).join('')}</div>`;
+  const catIds = new Set(cats.map((c) => c.id));
+  for (const cat of cats) {
+    const list = its.filter((i) => i.categoryId === cat.id);
+    html += `<div class="section-title"><h2>${esc(cat.name)}</h2>
+        <button class="icon-btn icon-btn--sm" data-edit-cat="${esc(cat.id)}" aria-label="Editar categoría ${esc(cat.name)}">${icon('edit')}</button></div>
+      <div class="tiles">${list.map((i) => addTile(i.name, i.icon, i.id)).join('')}${newItemTile(cat.id)}</div>`;
   }
+  const orphans = its.filter((i) => !catIds.has(i.categoryId));
+  if (orphans.length) {
+    html += `<div class="section-title"><h2>Sin categoría</h2></div><div class="tiles">${orphans.map((i) => addTile(i.name, i.icon, i.id)).join('')}</div>`;
+  }
+  html += `<button class="btn btn--ghost btn--block" id="btn-new-cat" style="margin-bottom:12px">${icon('plus')}Nueva categoría</button>
+    <p class="help center">Mantén pulsada una tarea del catálogo para editarla o cambiarla de categoría.</p>`;
   html += `</div>` + fab('Nueva tarea con fecha');
   view().innerHTML = html;
 
   wireTiles(all);
   wireTodoRows(all);
   $$('[data-goto]').forEach((b) => b.onclick = () => setView(b.dataset.goto));
+  $$('[data-edit-cat]').forEach((b) => b.onclick = () => openCategoryModal(cats.find((c) => c.id === b.dataset.editCat)));
+  $$('[data-new-item]').forEach((b) => b.onclick = () => openItemModal({ categoryId: b.dataset.newItem }));
+  $('#btn-new-cat').onclick = () => openCategoryModal(null);
   $('#fab-add').onclick = () => openTodoModal({ dueDate: today, title: $('#search-input').value.trim() });
   const tg = $('#toggle-done');
   if (tg) tg.onclick = () => { state.showDoneToday = !state.showDoneToday; renderHoy(); };
@@ -515,11 +544,15 @@ async function renderHoy() {
     state.search = q;
     $('#main-tiles').classList.toggle('hidden', !!q);
     if (!q) { $('#search-results').innerHTML = ''; return; }
-    const matches = searchCatalog(q).slice(0, 12);
-    const exact = matches.some((m) => normalizeTitle(m.name) === normalizeTitle(q)) || pendingByTitle.has(normalizeTitle(q));
+    const matches = searchItems(its, q).slice(0, 12);
+    const recentMatches = searchItems(recentFree, q).slice(0, 6);
+    const exact = itemByTitle.has(normalizeTitle(q)) || pendingByTitle.has(normalizeTitle(q))
+      || recentFree.some((r) => normalizeTitle(r.name) === normalizeTitle(q));
+    const guess = guessIcon(q, its);
     $('#search-results').innerHTML = `<div class="tiles">
-      ${exact ? '' : tile({ title: q, iconName: guessIcon(q), cls: 'tile--new', attrs: `data-tile-add="${esc(q)}" data-tile-icon="${esc(guessIcon(q))}"` })}
-      ${matches.map((m) => addTile(m.name, m.icon)).join('')}
+      ${exact ? '' : tile({ title: q, iconName: guess, cls: 'tile--new', attrs: `data-tile-add="${esc(q)}" data-tile-icon="${esc(guess)}" data-new-title="1"` })}
+      ${recentMatches.map((r) => addTile(r.name, r.icon)).join('')}
+      ${matches.map((m) => addTile(m.name, m.icon, m.id)).join('')}
     </div><p class="help center">Toca para añadirla a hoy · El botón <b>+</b> de abajo permite elegir fecha</p>`;
     wireTiles(all);
   };
@@ -528,19 +561,23 @@ async function renderHoy() {
     e.preventDefault();
     const q = input.value.trim();
     if (!q) return;
-    const p = pendingByTitle.get(normalizeTitle(q));
-    if (p) { toast('Ya está pendiente'); return; }
-    const hit = searchCatalog(q).find((m) => normalizeTitle(m.name) === normalizeTitle(q));
-    await addForToday(q, hit ? hit.icon : guessIcon(q));
+    if (pendingByTitle.has(normalizeTitle(q))) { toast('Ya está pendiente'); return; }
+    const hit = itemByTitle.get(normalizeTitle(q));
+    await addForToday(hit ? hit.name : q, hit ? hit.icon : guessIcon(q, its), { isNew: !hit });
   };
   if (state.search) { renderResults(); input.focus(); }
 }
 
-async function addForToday(title, iconName) {
+async function addForToday(title, iconName, { isNew = false } = {}) {
   const todo = await db.addTodo({ groupId: G().id, title, icon: iconName, dueDate: todayKey(), createdBy: G().currentMemberId });
   state.search = '';
   scheduleAutoSync(); notifyCreated(todo);
-  toast(`Añadida: ${title}`, 'ok', { action: { label: 'Deshacer', fn: async () => { await db.deleteTodo(todo.id); scheduleAutoSync(); refresh(); } } });
+  // Si es una tarea nueva, se ofrece guardarla en una categoría del catálogo.
+  toast(`Añadida: ${title}`, 'ok', {
+    action: isNew
+      ? { label: 'Guardar en categoría', fn: () => openItemModal({ title, icon: iconName }) }
+      : { label: 'Deshacer', fn: async () => { await db.deleteTodo(todo.id); scheduleAutoSync(); refresh(); } }
+  });
   await renderHoy();
 }
 
@@ -551,10 +588,11 @@ function wireTiles(all) {
     if (el.dataset.wired) return;
     el.dataset.wired = '1';
     let timer = null, longFired = false;
-    const edit = () => {
+    const edit = async () => {
       const t = all.find((x) => x.id === el.dataset.tileTodo);
-      if (t) openTodoModal({ todo: t });
-      else openTodoModal({ title: el.dataset.tileAdd, icon: el.dataset.tileIcon });
+      if (t) return openTodoModal({ todo: t });
+      const item = el.dataset.itemId && await db.getOne('items', el.dataset.itemId);
+      openItemModal(item ? { item } : { title: el.dataset.tileAdd, icon: el.dataset.tileIcon });
     };
     el.addEventListener('pointerdown', () => {
       longFired = false;
@@ -565,18 +603,42 @@ function wireTiles(all) {
     el.addEventListener('click', () => {
       if (longFired) { longFired = false; return; }
       if (el.dataset.tileTodo) completeTodo(el.dataset.tileTodo);
-      else addForToday(el.dataset.tileAdd, el.dataset.tileIcon);
+      else addForToday(el.dataset.tileAdd, el.dataset.tileIcon, { isNew: !!el.dataset.newTitle });
     });
   });
 }
 
 /* ========================== Vista: PRÓXIMAS ============================= */
+const PROJECT_DAYS = 28;   // Horizonte de las repeticiones previstas.
+const PROJECT_MAX = 6;     // Máximo de repeticiones previstas por tarea.
+
+/** Repeticiones futuras de las tareas que se repiten. Solo se muestran: la
+ * tarea real de la siguiente fecha se crea al resolver la actual. */
+function projectRepeats(pending, today) {
+  const out = [];
+  const limit = addDays(today, PROJECT_DAYS);
+  const real = new Set(pending.map((t) => `${t.seriesId || t.id}@${t.dueDate}`));
+  for (const t of pending) {
+    if (!t.repeat || t.repeat === 'none') continue;
+    let due = currentDue(t.dueDate, t.repeat, today);
+    for (let n = 0; n < PROJECT_MAX;) {
+      due = nextDue(due, t.repeat, due);
+      if (due > limit) break;
+      if (due <= today || real.has(`${t.seriesId || t.id}@${due}`)) continue;
+      out.push({ ...t, dueDate: due, projected: true });
+      n++;
+    }
+  }
+  return out;
+}
+
 async function renderProximas() {
   const [members, all] = await Promise.all([db.members(G().id), db.todos(G().id)]);
   const memById = new Map(members.map((m) => [m.id, m]));
   const today = todayKey();
-  const upcoming = all.filter((t) => !t.done && t.dueDate > today)
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.createdAt - b.createdAt);
+  const open = all.filter((t) => !t.done);
+  const upcoming = [...open.filter((t) => t.dueDate > today), ...projectRepeats(open, today)]
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || (a.projected ? 1 : 0) - (b.projected ? 1 : 0) || a.createdAt - b.createdAt);
 
   let html = '';
   if (!upcoming.length) {
@@ -584,16 +646,17 @@ async function renderProximas() {
   } else {
     const byDay = new Map();
     for (const t of upcoming) { if (!byDay.has(t.dueDate)) byDay.set(t.dueDate, []); byDay.get(t.dueDate).push(t); }
-    for (const [day, items] of byDay) {
+    for (const [day, list] of byDay) {
       const d = parseYmd(day);
       const label = day === addDays(today, 1) ? `Mañana · ${fmtShortDay(d)}` : fmtLongDate(d);
-      html += `<div class="section-title"><h2>${esc(label)}</h2></div>` + todoList(items, memById, { hideDate: true });
+      html += `<div class="section-title"><h2>${esc(label)}</h2></div>` + todoList(list, memById, { hideDate: true });
     }
+    if (upcoming.some((t) => t.projected)) html += `<p class="help center">${icon('repeat')} Cada repetición aparece en <b>Hoy</b> el día que toca. Al resolverla se planifica la siguiente.</p>`;
   }
   html += fab('Planificar tarea');
   view().innerHTML = html;
   wireTodoRows(all);
-  $('#fab-add').onclick = () => openTodoModal({ dueDate: addDays(today, 1) });
+  $('#fab-add').onclick = () => openTodoModal({ dueDate: addDays(today, 1), when: 'date' });
 }
 
 /* =========================== Vista: HECHAS ============================== */
@@ -629,24 +692,41 @@ async function renderHechas() {
 }
 
 /* ======================= Modal: crear / editar tarea ==================== */
-async function openTodoModal({ todo = null, dueDate = todayKey(), title = '', icon: iconName = '' } = {}) {
-  const members = await db.members(G().id);
+async function openTodoModal({ todo = null, dueDate = todayKey(), when = '', title = '', icon: iconName = '' } = {}) {
+  const gid = G().id;
+  const [members, all] = await Promise.all([db.members(gid), db.todos(gid)]);
+  const { cats, its, recent, itemByTitle } = await loadCatalog(all);
   const today = todayKey(), tomorrow = addDays(today, 1);
-  const cur = todo ? { ...todo } : { title, icon: iconName || (title ? guessIcon(title) : 'sparkles'), dueDate, repeat: 'none', assignee: null, note: '' };
+  const cur = todo ? { ...todo } : { title, icon: iconName || (title ? guessIcon(title, its) : 'sparkles'), dueDate, repeat: 'none', assignee: null, note: '' };
   let iconTouched = !!todo || !!iconName;
-  const whenMode = cur.dueDate === today ? 'today' : cur.dueDate === tomorrow ? 'tomorrow' : 'date';
+  const whenMode = when || (cur.dueDate === today ? 'today' : cur.dueDate === tomorrow ? 'tomorrow' : 'date');
+  const catName = (id) => (cats.find((c) => c.id === id) || {}).name || 'Sin categoría';
+  // Opciones del selector "Elegir de tus tareas": catálogo + recientes.
+  // En «Todas» van primero las recientes y luego el catálogo en el orden de sus categorías.
+  const catPos = new Map(cats.map((c, i) => [c.id, i]));
+  const sortedItems = [...its].sort((a, b) => (catPos.get(a.categoryId) ?? 99) - (catPos.get(b.categoryId) ?? 99) || (a.order || 0) - (b.order || 0));
+  const picks = [...recent.map((r) => ({ name: r.name, icon: r.icon, cat: '__recent' })), ...sortedItems.map((i) => ({ name: i.name, icon: i.icon, cat: i.categoryId }))];
 
   openModal(todo ? 'Editar tarea' : 'Nueva tarea', `
     <div class="field"><label>¿Qué hay que hacer?</label>
-      <input class="input" id="td-title" placeholder="Ej: Sacar la basura" maxlength="80" value="${esc(cur.title)}">
+      <input class="input" id="td-title" placeholder="Escribe o elige abajo" maxlength="80" value="${esc(cur.title)}">
     </div>
+    ${todo ? '' : `
+    <div class="field"><label>Elegir de tus tareas</label>
+      <div class="chip-row" id="td-pcats">
+        <button type="button" class="chip-btn is-active" data-pcat="">Todas</button>
+        ${recent.length ? '<button type="button" class="chip-btn" data-pcat="__recent">Recientes</button>' : ''}
+        ${cats.map((c) => `<button type="button" class="chip-btn" data-pcat="${esc(c.id)}">${esc(c.name)}</button>`).join('')}
+      </div>
+      <div class="picks" id="td-picks"></div>
+    </div>`}
     <div class="field"><label>¿Cuándo?</label>
       <div class="segment segment--block" id="td-when">
         <button type="button" data-when="today" class="${whenMode === 'today' ? 'is-active' : ''}">Hoy</button>
         <button type="button" data-when="tomorrow" class="${whenMode === 'tomorrow' ? 'is-active' : ''}">Mañana</button>
         <button type="button" data-when="date" class="${whenMode === 'date' ? 'is-active' : ''}">Otro día</button>
       </div>
-      <input class="input ${whenMode === 'date' ? '' : 'hidden'}" type="date" id="td-date" value="${esc(cur.dueDate)}" style="margin-top:8px">
+      <input class="input ${whenMode === 'date' ? '' : 'hidden'}" type="date" id="td-date" value="${esc(cur.dueDate)}" min="${today}" style="margin-top:8px">
     </div>
     <div class="field"><label>Repetir</label>
       <select class="select" id="td-repeat">
@@ -667,46 +747,101 @@ async function openTodoModal({ todo = null, dueDate = todayKey(), title = '', ic
     <div class="field"><label>Nota (opcional)</label>
       <input class="input" id="td-note" placeholder="Ej: la de reciclaje también" maxlength="120" value="${esc(cur.note)}">
     </div>
+    <div class="field"><label>Guardar como tarea habitual</label>
+      <select class="select" id="td-cat">
+        <option value="">No guardar</option>
+        ${cats.map((c) => `<option value="${esc(c.id)}">En «${esc(c.name)}»</option>`).join('')}
+        <option value="__new">En una categoría nueva…</option>
+      </select>
+      <input class="input hidden" id="td-newcat" placeholder="Nombre de la nueva categoría" maxlength="30" style="margin-top:8px">
+      <p class="help hidden" id="td-cat-info"></p>
+    </div>
     <div class="modal__actions">
       ${todo ? `<button class="btn btn--danger" id="td-delete">${icon('trash')}Eliminar</button>` : ''}
       <button class="btn btn--primary" id="td-save">${todo ? 'Guardar' : 'Añadir'}</button>
     </div>`, {
     onMount(modal) {
+      const titleInput = $('#td-title', modal);
       const dateInput = $('#td-date', modal);
+      const catSelect = $('#td-cat', modal);
+      const setIcon = (k) => {
+        cur.icon = k;
+        $$('[data-icon-pick]', modal).forEach((x) => x.classList.toggle('is-active', x.dataset.iconPick === k));
+      };
+      // "Guardar como tarea habitual": si ya está en el catálogo, solo se informa.
+      const syncCatField = () => {
+        const hit = itemByTitle.get(normalizeTitle(titleInput.value));
+        catSelect.classList.toggle('hidden', !!hit);
+        $('#td-newcat', modal).classList.toggle('hidden', !!hit || catSelect.value !== '__new');
+        const info = $('#td-cat-info', modal);
+        info.classList.toggle('hidden', !hit);
+        if (hit) info.textContent = `Ya está en tu catálogo, en «${catName(hit.categoryId)}».`;
+      };
+      // Selector de tareas habituales (solo al crear).
+      let pcat = '';
+      const renderPicks = () => {
+        const box = $('#td-picks', modal);
+        if (!box) return;
+        const q = normalizeTitle(titleInput.value);
+        const list = picks.filter((p) => (!pcat || p.cat === pcat) && (!q || normalizeTitle(p.name).includes(q)));
+        box.innerHTML = list.length
+          ? list.map((p) => `<button type="button" class="pick ${normalizeTitle(p.name) === q ? 'is-active' : ''}" data-pick="${esc(p.name)}" data-pick-icon="${esc(p.icon)}">${icon(p.icon)}<span>${esc(p.name)}</span></button>`).join('')
+          : '<p class="help" style="margin:4px 2px">Nada con ese nombre: se creará como tarea nueva.</p>';
+        $$('[data-pick]', box).forEach((b) => b.onclick = () => {
+          titleInput.value = b.dataset.pick;
+          setIcon(b.dataset.pickIcon); iconTouched = true;
+          renderPicks(); syncCatField();
+        });
+      };
+      $$('[data-pcat]', modal).forEach((b) => b.onclick = () => {
+        pcat = b.dataset.pcat;
+        $$('[data-pcat]', modal).forEach((x) => x.classList.toggle('is-active', x === b));
+        renderPicks();
+      });
+      renderPicks(); syncCatField();
+
+      titleInput.oninput = (e) => {
+        if (!iconTouched) setIcon(guessIcon(e.target.value, its));
+        renderPicks(); syncCatField();
+      };
+      catSelect.onchange = () => {
+        syncCatField();
+        if (catSelect.value === '__new') $('#td-newcat', modal).focus();
+      };
       $$('[data-when]', modal).forEach((b) => b.onclick = () => {
         $$('[data-when]', modal).forEach((x) => x.classList.toggle('is-active', x === b));
         const w = b.dataset.when;
         dateInput.classList.toggle('hidden', w !== 'date');
         if (w === 'today') dateInput.value = today;
         else if (w === 'tomorrow') dateInput.value = tomorrow;
-        else { if (dateInput.value <= tomorrow) dateInput.value = addDays(today, 2); dateInput.focus(); }
+        else { if (dateInput.value < tomorrow) dateInput.value = tomorrow; dateInput.focus(); }
       });
       $$('[data-mid]', modal).forEach((b) => b.onclick = () => {
         cur.assignee = b.dataset.mid || null;
         $$('[data-mid]', modal).forEach((x) => x.classList.toggle('is-active', x === b));
       });
-      $$('[data-icon-pick]', modal).forEach((b) => b.onclick = () => {
-        cur.icon = b.dataset.iconPick; iconTouched = true;
-        $$('[data-icon-pick]', modal).forEach((x) => x.classList.toggle('is-active', x === b));
-      });
-      if (!todo && !title) $('#td-title', modal).focus();
-      // Mientras no se elija icono a mano, se sugiere según el título.
-      $('#td-title', modal).oninput = (e) => {
-        if (iconTouched) return;
-        cur.icon = guessIcon(e.target.value);
-        $$('[data-icon-pick]', modal).forEach((x) => x.classList.toggle('is-active', x.dataset.iconPick === cur.icon));
-      };
+      $$('[data-icon-pick]', modal).forEach((b) => b.onclick = () => { setIcon(b.dataset.iconPick); iconTouched = true; });
 
       $('#td-save', modal).onclick = async () => {
-        const title = $('#td-title', modal).value.trim();
-        if (!title) return toast('Escribe qué hay que hacer', 'err');
+        const name = titleInput.value.trim();
+        if (!name) return toast('Escribe o elige qué hay que hacer', 'err');
         const due = dateInput.value || today;
-        const fields = { title, icon: cur.icon, dueDate: due, repeat: $('#td-repeat', modal).value, assignee: cur.assignee, note: $('#td-note', modal).value.trim() };
+        const fields = { title: name, icon: cur.icon, dueDate: due, repeat: $('#td-repeat', modal).value, assignee: cur.assignee, note: $('#td-note', modal).value.trim() };
+        // Guardar en el catálogo (si se pidió y aún no está).
+        if (!itemByTitle.has(normalizeTitle(name)) && catSelect.value) {
+          let categoryId = catSelect.value;
+          if (categoryId === '__new') {
+            const cname = $('#td-newcat', modal).value.trim();
+            if (!cname) return toast('Escribe el nombre de la categoría', 'err');
+            categoryId = (await db.addCategory({ groupId: gid, name: cname })).id;
+          }
+          await db.addItem({ groupId: gid, name, icon: cur.icon, categoryId });
+        }
         if (todo) {
           await db.updateTodo(todo.id, fields);
           closeModal(); toast('Tarea guardada', 'ok');
         } else {
-          const created = await db.addTodo({ ...fields, groupId: G().id, createdBy: G().currentMemberId });
+          const created = await db.addTodo({ ...fields, groupId: gid, createdBy: G().currentMemberId });
           notifyCreated(created);
           state.search = '';
           closeModal(); toast(due === today ? 'Añadida para hoy' : `Planificada: ${dueLabel(due)}`, 'ok');
@@ -718,6 +853,131 @@ async function openTodoModal({ todo = null, dueDate = todayKey(), title = '', ic
         if (!await confirmDialog(`¿Eliminar «${todo.title}»? Se borrará para todo el grupo.`, { danger: true, okText: 'Eliminar' })) return;
         await db.deleteTodo(todo.id);
         toast('Tarea eliminada', 'ok'); scheduleAutoSync(); await refresh();
+      };
+    }
+  });
+}
+
+/* ================ Modal: tarea habitual del catálogo ===================== */
+/* Editar una tarea del catálogo, o guardar en él una reciente/nueva. */
+async function openItemModal({ item = null, title = '', icon: iconName = '', categoryId = null } = {}) {
+  const gid = G().id;
+  const cats = await db.categories(gid);
+  const cur = item ? { ...item } : { name: title, icon: iconName || (title ? guessIcon(title) : 'sparkles'), categoryId: categoryId || (cats[0] && cats[0].id) || null };
+  let newCat = !cats.length;
+
+  openModal(item ? 'Tarea habitual' : 'Guardar en el catálogo', `
+    <div class="field"><label>Nombre</label>
+      <input class="input" id="it-name" value="${esc(cur.name)}" placeholder="Ej: Limpiar el horno" maxlength="80">
+    </div>
+    <div class="field"><label>Categoría</label>
+      <div class="person-picker" id="it-cats">
+        ${cats.map((c) => `<button type="button" class="person-pick ${c.id === cur.categoryId && !newCat ? 'is-active' : ''}" data-cat="${esc(c.id)}">${esc(c.name)}</button>`).join('')}
+        <button type="button" class="person-pick ${newCat ? 'is-active' : ''}" data-cat="__new">${icon('plus')}Nueva</button>
+      </div>
+      <input class="input ${newCat ? '' : 'hidden'}" id="it-newcat" placeholder="Nombre de la nueva categoría" maxlength="30" style="margin-top:8px">
+    </div>
+    <div class="field"><label>Icono</label>
+      <div class="icon-grid" id="it-icon">
+        ${TASK_ICONS.map((k) => `<button type="button" class="${k === cur.icon ? 'is-active' : ''}" data-icon-pick="${k}" aria-label="${k}">${icon(k)}</button>`).join('')}
+      </div>
+    </div>
+    <div class="modal__actions">
+      ${item ? `<button class="btn btn--danger" id="it-delete">${icon('trash')}Quitar</button>` : ''}
+      <button class="btn btn--primary" id="it-save">Guardar</button>
+    </div>
+    <button class="btn btn--ghost btn--block btn--sm" id="it-plan" style="margin-top:10px">${icon('calendar')}Planificar para otro día</button>`, {
+    onMount(modal) {
+      $$('[data-cat]', modal).forEach((b) => b.onclick = () => {
+        newCat = b.dataset.cat === '__new';
+        if (!newCat) cur.categoryId = b.dataset.cat;
+        $$('[data-cat]', modal).forEach((x) => x.classList.toggle('is-active', x === b));
+        $('#it-newcat', modal).classList.toggle('hidden', !newCat);
+        if (newCat) $('#it-newcat', modal).focus();
+      });
+      $$('[data-icon-pick]', modal).forEach((b) => b.onclick = () => {
+        cur.icon = b.dataset.iconPick;
+        $$('[data-icon-pick]', modal).forEach((x) => x.classList.toggle('is-active', x === b));
+      });
+      $('#it-save', modal).onclick = async () => {
+        const name = $('#it-name', modal).value.trim();
+        if (!name) return toast('Escribe un nombre', 'err');
+        let categoryId = cur.categoryId;
+        if (newCat) {
+          const cname = $('#it-newcat', modal).value.trim();
+          if (!cname) return toast('Escribe el nombre de la categoría', 'err');
+          categoryId = (await db.addCategory({ groupId: gid, name: cname })).id;
+        }
+        if (item) await db.updateItem(item.id, { name, icon: cur.icon, categoryId });
+        else await db.addItem({ groupId: gid, name, icon: cur.icon, categoryId });
+        closeModal(); toast(item ? 'Tarea habitual guardada' : 'Guardada en el catálogo', 'ok');
+        scheduleAutoSync(); await refresh();
+      };
+      const del = $('#it-delete', modal);
+      if (del) del.onclick = async () => {
+        await db.deleteItem(item.id);
+        closeModal(); toast(`«${item.name}» quitada del catálogo`, 'ok');
+        scheduleAutoSync(); await refresh();
+      };
+      $('#it-plan', modal).onclick = () => openTodoModal({
+        title: $('#it-name', modal).value.trim(), icon: cur.icon, dueDate: addDays(todayKey(), 1), when: 'date'
+      });
+    }
+  });
+}
+
+/* ======================== Modal: categoría ============================== */
+async function openCategoryModal(cat = null) {
+  const gid = G().id;
+  const cats = await db.categories(gid);
+  const idx = cat ? cats.findIndex((c) => c.id === cat.id) : -1;
+  const count = cat ? (await db.items(gid)).filter((i) => i.categoryId === cat.id).length : 0;
+
+  openModal(cat ? 'Categoría' : 'Nueva categoría', `
+    <div class="field"><label>Nombre</label>
+      <input class="input" id="cat-name" value="${esc(cat ? cat.name : '')}" placeholder="Ej: Jardín" maxlength="30">
+    </div>
+    ${cat ? `
+    <div class="field"><label>Posición</label>
+      <div class="row">
+        <button class="btn btn--sm" id="cat-up" ${idx <= 0 ? 'disabled' : ''}>${icon('chevron-up')}Subir</button>
+        <button class="btn btn--sm" id="cat-down" ${idx >= cats.length - 1 ? 'disabled' : ''}>${icon('chevron-down')}Bajar</button>
+      </div>
+    </div>` : ''}
+    <div class="modal__actions">
+      ${cat ? `<button class="btn btn--danger" id="cat-delete">${icon('trash')}Eliminar</button>` : ''}
+      <button class="btn btn--primary" id="cat-save">${cat ? 'Guardar' : 'Crear'}</button>
+    </div>`, {
+    onMount(modal) {
+      const input = $('#cat-name', modal);
+      if (!cat) input.focus();
+      $('#cat-save', modal).onclick = async () => {
+        const name = input.value.trim();
+        if (!name) return toast('Escribe un nombre', 'err');
+        if (cat) await db.updateCategory(cat.id, { name });
+        else await db.addCategory({ groupId: gid, name, order: cats.length ? (cats[cats.length - 1].order || 0) + 1 : 0 });
+        closeModal(); toast(cat ? 'Categoría guardada' : `Categoría «${name}» creada`, 'ok');
+        scheduleAutoSync(); await refresh();
+      };
+      // Reordenar: se renumeran todas y se intercambia con la vecina.
+      const move = async (delta) => {
+        const list = [...cats];
+        const [moved] = list.splice(idx, 1);
+        list.splice(idx + delta, 0, moved);
+        for (let i = 0; i < list.length; i++) if (list[i].order !== i) await db.updateCategory(list[i].id, { order: i });
+        closeModal(); scheduleAutoSync(); await refresh();
+      };
+      const up = $('#cat-up', modal), down = $('#cat-down', modal);
+      if (up) up.onclick = () => move(-1);
+      if (down) down.onclick = () => move(1);
+      const del = $('#cat-delete', modal);
+      if (del) del.onclick = async () => {
+        const msg = count
+          ? `¿Eliminar «${cat.name}» y sus ${count} tarea${count === 1 ? '' : 's'} habitual${count === 1 ? '' : 'es'}? Las tareas pendientes no se tocan.`
+          : `¿Eliminar la categoría «${cat.name}»?`;
+        if (!await confirmDialog(msg, { danger: true, okText: 'Eliminar' })) return;
+        await db.deleteCategory(cat.id);
+        toast('Categoría eliminada', 'ok'); scheduleAutoSync(); await refresh();
       };
     }
   });
@@ -749,7 +1009,7 @@ function renderOnboarding() {
     <div class="onboard">
       ${first ? `
         <div class="onboard__logo">${icon('home')}</div>
-        <h1>Tareas del Hogar</h1>
+        <h1>Tareas</h1>
         <p class="muted">Tareas pendientes de hoy y las que estén por venir, solo para ti o compartidas con tu pareja o familia.</p>`
       : `<div class="flex-between"><h2 class="list-head__title">Nuevo grupo</h2><button class="btn btn--ghost btn--sm" id="ob-cancel">Cancelar</button></div>`}
 
@@ -844,6 +1104,7 @@ async function createGroup({ name, personal, myName, notifyEnabled = !personal, 
   // El tema se genera siempre: así activar los avisos más tarde es un solo toque.
   const group = await db.addGroup({ name, personal, ntfyTopic: randomTopic(name), notifyEnabled }, { activate });
   const me = await db.addMember({ groupId: group.id, name: myName, color: MEMBER_COLORS[0] });
+  await db.seedCatalog(group.id);
   state.settings = await db.updateGroup(group.id, { currentMemberId: me.id });
   return group;
 }
@@ -868,8 +1129,10 @@ async function joinGroup(invite, myName) {
     ntfyServer: invite.ntfyServer || 'https://ntfy.sh', ntfyTopic: isValidTopic(invite.ntfyTopic) ? invite.ntfyTopic : '',
     notifyEnabled: isValidTopic(invite.ntfyTopic)
   });
-  // Primero traemos el grupo para elegir un color libre y no duplicar nombre.
+  // Primero traemos el grupo (miembros y catálogo) para elegir un color libre
+  // y no duplicar nombre. Sin hoja no hay nada que traer: catálogo inicial.
   if (group.syncUrl) { try { await syncNow(group); } catch (e) { console.warn(e); } }
+  else await db.seedCatalog(group.id);
   const existingMembers = await db.members(group.id);
   const same = existingMembers.find((m) => m.name.trim().toLowerCase() === myName.toLowerCase());
   const me = same || await db.addMember({ groupId: group.id, name: myName, color: nextColor(existingMembers.map((m) => m.color)) });
@@ -961,7 +1224,7 @@ async function shareInvite() {
   const g = G();
   if (!g.syncUrl && !await confirmDialog('Aún no has conectado Google Sheets: sin eso la otra persona no verá vuestras tareas. ¿Enviar la invitación igualmente?', { okText: 'Enviar' })) return;
   const url = inviteUrl();
-  const text = `Únete a «${g.name}» en Tareas del Hogar. Abre el enlace o pégalo en la app (Unirme):`;
+  const text = `Únete a «${g.name}» en Tareas. Abre el enlace o pégalo en la app (Unirme):`;
   if (navigator.share) {
     try { await navigator.share({ title: g.name, text, url }); return; }
     catch (e) { if (e.name === 'AbortError') return; }
@@ -1268,10 +1531,10 @@ async function renderAjustes() {
     <!-- Acerca de -->
     <div class="section-title"><h2>Acerca de</h2></div>
     <div class="card flex-between">
-      <div><div class="list-item__title">Tareas del Hogar</div><div class="muted text-sm">Versión ${APP_VERSION}</div></div>
+      <div><div class="list-item__title">Tareas</div><div class="muted text-sm">Versión ${APP_VERSION}</div></div>
       <button class="btn btn--sm" id="btn-changelog">Novedades</button>
     </div>
-    <p class="help center" style="margin-top:16px">Hecho con ${icon('heart')} · Datos guardados en tu dispositivo (IndexedDB).</p>
+    <p class="help center" style="margin-top:16px">Hecho con ${icon('heart', { cls: 'ico--heart' })} · Datos guardados en tu dispositivo (IndexedDB).</p>
   `;
 
   $$('[data-theme-btn]').forEach((b) => b.onclick = async () => {
@@ -1413,7 +1676,7 @@ async function exportData() {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `tareas-hogar-backup-${ymd(new Date())}.json`;
+  a.download = `tareas-backup-${ymd(new Date())}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
   toast('Copia exportada', 'ok');

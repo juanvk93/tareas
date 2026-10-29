@@ -1,4 +1,4 @@
-# CLAUDE.md — Tareas del Hogar
+# CLAUDE.md — Tareas
 
 Guía para trabajar en este proyecto en futuras sesiones. Léela antes de tocar código.
 
@@ -34,7 +34,7 @@ Tareas/
 │   ├── sync.js             # Sincronización bidireccional con el Web App de Apps Script.
 │   ├── notify.js           # Avisos vía ntfy (POST JSON a la raíz del servidor) + cola offline.
 │   ├── icons.js            # Iconos SVG (interfaz y tareas). icon(name), TASK_ICONS.
-│   ├── catalog.js          # Catálogo de tareas habituales por categoría + búsqueda + guessIcon(). (puro)
+│   ├── catalog.js          # Catálogo INICIAL (DEFAULT_CATALOG) + searchItems() + guessIcon(). (puro)
 │   ├── dates.js            # Fechas 'YYYY-MM-DD' y nextDue() de las repeticiones. (puro, testeable en Node)
 │   └── changelog.js        # APP_VERSION + array CHANGELOG. Fuente de la versión del producto.
 ├── icons/                  # icon.svg + PNG 192/512/180/maskable-512 (generados; ver "Iconos").
@@ -67,9 +67,18 @@ Tareas/
 - **Selector de grupo:** el nombre de la cabecera (`#group-switch`) abre `openGroupSwitcher()`
   (lista de grupos con pendientes de hoy + crear/unirse). `switchGroup(id)` conserva la pestaña.
 - **Hoy** (estilo Bring): buscador «¿Qué hay que hacer?», casillas de color con las pendientes
-  (vencidas y de hoy; toque = resolver, pulsación larga/clic derecho = editar), *Recientes* y
-  el catálogo por categorías (toque = añadir para hoy; si ya está pendiente sale en color).
-- **Próximas** (vencimiento > hoy, agrupadas por día), **Hechas** (historial + resumen semanal
+  (vencidas y de hoy; toque = resolver, pulsación larga/clic derecho = editar), *Recientes*
+  (títulos usados que no están en el catálogo) y el **catálogo del grupo** por categorías
+  (toque = añadir para hoy; si ya está pendiente sale en color; pulsación larga =
+  `openItemModal`; lápiz de la categoría = `openCategoryModal`; casilla «Nueva» por categoría).
+  Al añadir una tarea nueva, el toast ofrece «Guardar en categoría».
+- **Próximas**: vencimiento > hoy + **repeticiones previstas** (`projectRepeats()`: hasta 28 días
+  y 6 por tarea, filas `is-projected` sin check). Son solo visuales: la tarea real de la
+  siguiente fecha se crea al resolver la actual. Su botón + abre el modal con `when: 'date'`.
+- **Modal de tarea** (`openTodoModal`): al crear incluye «Elegir de tus tareas» (catálogo +
+  recientes, chips por categoría, filtra con lo escrito) y «Guardar como tarea habitual»
+  (categoría existente o nueva; se oculta si el título ya está en el catálogo).
+- **Hechas** (historial + resumen semanal
   por persona), **Grupo** (miembros, invitar, Google Sheets, ntfy, salir) y **Ajustes**
   (apariencia, almacenamiento, copia de seguridad, novedades).
 
@@ -105,16 +114,25 @@ Tareas/
 
 ### Almacenes IndexedDB (DB `tareas-hogar`, v2)
 
-Definidos en `db.js`. `DATA_STORES = ['members', 'todos']` son los que se sincronizan:
+Definidos en `db.js` (DB v3). `DATA_STORES = ['members', 'todos', 'categories', 'items']` se sincronizan:
 
 | Store     | Campos clave                                                                 |
 |-----------|------------------------------------------------------------------------------|
 | `members` | `id, groupId, name, color, updatedAt, deleted`                               |
 | `todos`   | `id, groupId, title, icon, dueDate('YYYY-MM-DD'), repeat(none/daily/weekly/monthly), assignee, note, done, doneAt, doneBy, createdBy, createdAt, seriesId, updatedAt, deleted` |
+| `categories` | `id, groupId, name, order, updatedAt, deleted`                            |
+| `items`   | `id, groupId, name, icon, categoryId, order, updatedAt, deleted` (tareas habituales) |
 | `meta`    | `key, value` (`settings`, cola `ntfyQueue`)                                  |
+
+- **Catálogo por grupo:** `db.seedCatalog(groupId)` copia `DEFAULT_CATALOG` **solo al crear** el
+  grupo (o al unirse sin hoja). Quien se une con hoja lo recibe por la sincronización, así no se
+  duplica. Borrar una categoría borra (soft) sus tareas habituales, no las pendientes.
 
 - **Borrado blando (tombstones):** eliminar = marcar `deleted:true` + `updatedAt`. La UI
   filtra con `getActive()`. Esto permite propagar los borrados por la sincronización.
+- **Ocurrencia vigente:** en la UI la fecha de una tarea es `dueOf(t)` = `currentDue()` (dates.js):
+  para las repetidas, la última fecha de la serie ≤ hoy (las repeticiones perdidas se agrupan; una
+  diaria siempre es "de hoy"). El `dueDate` guardado no se toca; `projectRepeats()` parte de ahí.
 - **Repeticiones:** `completeTodo()` marca hecha y crea la siguiente con id determinista
   `${seriesId}@${dueDate}` (si los dos móviles la resuelven a la vez no se duplica).
   `reopenTodo()` borra esa siguiente si sigue sin tocar. `nextDue()` salta los días perdidos.
@@ -201,7 +219,7 @@ ambos (SVG y script) y regenera los cuatro PNG.
 
 **Iconos de la interfaz:** `js/icons.js`, trazo 24×24 estilo "outline", `stroke="currentColor"`.
 Para añadir uno, mete su `<path>` en `PATHS`; si es de tarea, añádelo también a `TASK_ICONS`
-(y, si procede, úsalo en `catalog.js`).
+(y, si procede, úsalo en `DEFAULT_CATALOG` de `catalog.js`).
 En el HTML estático se usan con `data-icon="nombre"` (se rellenan en `init()`). Los `<option>`
 de los `<select>` no admiten SVG: ahí va solo el texto.
 

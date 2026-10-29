@@ -8,7 +8,7 @@ const src = await readFile(new URL('../js/changelog.js', import.meta.url), 'utf8
 const { APP_VERSION, CHANGELOG } = await import('data:text/javascript,' + encodeURIComponent(src));
 
 const LABEL = { add: 'Añadido', chg: 'Cambiado', fix: 'Corregido' };
-let md = `# Registro de cambios\n\nTodos los cambios relevantes de **Tareas del Hogar**. Versión actual: **${APP_VERSION}**.\n\n` +
+let md = `# Registro de cambios\n\nTodos los cambios relevantes de **Tareas**. Versión actual: **${APP_VERSION}**.\n\n` +
   `> Archivo generado desde \`js/changelog.js\` con \`node tools/gen_changelog.mjs\`. No editar a mano.\n`;
 for (const e of CHANGELOG) {
   md += `\n## [${e.version}] — ${e.date}\n`;

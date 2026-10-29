@@ -12,9 +12,29 @@
  *
  * Tipos de cambio: "add" (nuevo), "chg" (cambio/mejora), "fix" (corrección).
  */
-export const APP_VERSION = '2.3.0';
+export const APP_VERSION = '2.4.1';
 
 export const CHANGELOG = [
+  {
+    version: '2.4.1',
+    date: '2026-10-29',
+    changes: [
+      { type: 'fix', text: 'Las tareas que se repiten aparecen en Hoy el día que les toca, aunque la repetición anterior no se resolviera (antes salían como atrasadas con la fecha vieja).' },
+      { type: 'chg', text: 'Al resolver una tarea repetida desde Hoy se planifica la siguiente fecha, igual que se ve en Próximas.' }
+    ]
+  },
+  {
+    version: '2.4.0',
+    date: '2026-10-29',
+    changes: [
+      { type: 'chg', text: 'La aplicación pasa a llamarse «Tareas».' },
+      { type: 'add', text: 'Catálogo personalizable por grupo: crea, renombra, reordena y elimina categorías, y añade tus propias tareas habituales.' },
+      { type: 'add', text: 'Las tareas nuevas se pueden guardar en una categoría: desde el aviso al añadirlas, desde el formulario o manteniéndolas pulsadas.' },
+      { type: 'add', text: 'Al planificar, «Elegir de tus tareas» muestra tu catálogo y las recientes, filtrables por categoría.' },
+      { type: 'chg', text: 'Planificar desde Próximas abre el formulario con «Otro día» marcado.' },
+      { type: 'fix', text: 'Las tareas que se repiten ya aparecen en Próximas (como repeticiones previstas) sin tener que resolver antes la actual.' }
+    ]
+  },
   {
     version: '2.3.0',
     date: '2026-10-28',

@@ -1,8 +1,9 @@
-/* Catálogo de tareas habituales, al estilo de los artículos de una lista de
- * la compra: se muestran como casillas y un toque las añade como pendientes.
+/* Catálogo INICIAL de tareas habituales, al estilo de los artículos de una
+ * lista de la compra. Se copia a cada grupo nuevo (db.seedCatalog) y a partir
+ * de ahí cada grupo lo personaliza: categorías y tareas propias.
  * Los iconos son claves de icons.js. */
 
-export const CATALOG = [
+export const DEFAULT_CATALOG = [
   {
     name: 'Limpieza',
     items: [
@@ -66,29 +67,26 @@ export const CATALOG = [
   }
 ];
 
-const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 export { norm as normalizeTitle };
 
-/** Busca en el catálogo por texto (sin tildes ni mayúsculas). */
-export function searchCatalog(q) {
+/** Busca por texto (sin tildes ni mayúsculas) en una lista de tareas habituales. */
+export function searchItems(list, q) {
   const n = norm(q);
   if (!n) return [];
-  const out = [];
-  for (const cat of CATALOG) for (const it of cat.items) if (norm(it.name).includes(n)) out.push(it);
-  return out;
+  return list.filter((it) => norm(it.name).includes(n));
 }
 
-/** Icono sugerido para un título: el del catálogo si coincide alguna palabra clave. */
-export function guessIcon(title) {
+/** Icono sugerido para un título: el de la tarea habitual que coincida o
+ * que comparta alguna palabra (sin contar la primera, que suele ser el verbo). */
+export function guessIcon(title, list = DEFAULT_CATALOG.flatMap((c) => c.items)) {
   const n = norm(title);
-  for (const cat of CATALOG) for (const it of cat.items) if (norm(it.name) === n) return it.icon;
-  // La primera palabra suele ser el verbo (limpiar, sacar…): miramos el resto.
+  const exact = list.find((it) => norm(it.name) === n);
+  if (exact) return exact.icon;
   const words = n.split(/\s+/).slice(1).filter((w) => w.length > 3);
-  for (const cat of CATALOG) {
-    for (const it of cat.items) {
-      const iw = norm(it.name).split(/\s+/).filter((w) => w.length > 3);
-      if (words.some((w) => iw.includes(w))) return it.icon;
-    }
+  for (const it of list) {
+    const iw = norm(it.name).split(/\s+/).filter((w) => w.length > 3);
+    if (words.some((w) => iw.includes(w))) return it.icon;
   }
   return 'sparkles';
 }

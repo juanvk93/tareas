@@ -2,9 +2,11 @@
  *
  * Almacenes (object stores) que se sincronizan con su grupo:
  *   - members : miembros del grupo   {id, groupId, name, color, updatedAt, deleted}
- *   - todos   : tareas pendientes    {id, groupId, title, icon, dueDate, repeat, assignee,
+ *   - todos      : tareas pendientes  {id, groupId, title, icon, dueDate, repeat, assignee,
  *                                     note, done, doneAt, doneBy, createdBy, createdAt,
  *                                     seriesId, updatedAt, deleted}
+ *   - categories : categorías del catálogo {id, groupId, name, order, updatedAt, deleted}
+ *   - items      : tareas habituales  {id, groupId, name, icon, categoryId, order, updatedAt, deleted}
  * Y uno local:
  *   - meta    : ajustes/config       {key, value}
  *
@@ -18,10 +20,11 @@
  * registros con deleted:true.
  */
 import { nextDue } from './dates.js';
+import { DEFAULT_CATALOG } from './catalog.js';
 
 const DB_NAME = 'tareas-hogar';
-const DB_VERSION = 2;
-export const DATA_STORES = ['members', 'todos'];
+const DB_VERSION = 3;
+export const DATA_STORES = ['members', 'todos', 'categories', 'items'];
 
 let _db = null;
 
@@ -229,6 +232,61 @@ export async function reopenTodo(id) {
   const next = await getOne('todos', nextId);
   if (next && !next.deleted && !next.done) await deleteTodo(nextId);
   return rec;
+}
+
+/* ------------------- Catálogo: categorías y tareas habituales ------------ */
+const byOrder = (a, b) => (a.order || 0) - (b.order || 0) || String(a.name).localeCompare(b.name);
+
+export async function categories(groupId) {
+  return (await getActive('categories')).filter((r) => r.groupId === groupId).sort(byOrder);
+}
+export async function items(groupId) {
+  return (await getActive('items')).filter((r) => r.groupId === groupId).sort(byOrder);
+}
+export async function addCategory({ groupId, name, order }) {
+  const rec = { id: uid(), groupId, name: name.trim(), order: order ?? Date.now(), updatedAt: Date.now(), deleted: false };
+  await putRaw('categories', rec);
+  return rec;
+}
+export async function updateCategory(id, patch) { return patchRecord('categories', id, patch); }
+/** Borra la categoría y sus tareas habituales (las tareas pendientes no se tocan). */
+export async function deleteCategory(id) {
+  const cat = await getOne('categories', id);
+  if (!cat) return;
+  for (const it of await items(cat.groupId)) if (it.categoryId === id) await softDelete('items', it.id);
+  await softDelete('categories', id);
+}
+export async function addItem({ groupId, name, icon, categoryId, order }) {
+  const rec = { id: uid(), groupId, name: name.trim(), icon: icon || 'sparkles', categoryId, order: order ?? Date.now(), updatedAt: Date.now(), deleted: false };
+  await putRaw('items', rec);
+  return rec;
+}
+export async function updateItem(id, patch) { return patchRecord('items', id, patch); }
+export async function deleteItem(id) { return softDelete('items', id); }
+
+/** Catálogo inicial de un grupo nuevo (solo lo hace quien crea el grupo;
+ * quien se une lo recibe por la sincronización). */
+export async function seedCatalog(groupId) {
+  let ci = 0;
+  for (const cat of DEFAULT_CATALOG) {
+    const c = await addCategory({ groupId, name: cat.name, order: ci++ });
+    let ii = 0;
+    for (const it of cat.items) await addItem({ groupId, name: it.name, icon: it.icon, categoryId: c.id, order: ii++ });
+  }
+}
+
+async function patchRecord(store, id, patch) {
+  const rec = await getOne(store, id);
+  if (!rec) return null;
+  Object.assign(rec, patch, { updatedAt: Date.now() });
+  await putRaw(store, rec);
+  return rec;
+}
+async function softDelete(store, id) {
+  const rec = await getOne(store, id);
+  if (!rec) return;
+  rec.deleted = true; rec.updatedAt = Date.now();
+  await putRaw(store, rec);
 }
 
 /* ------------------- Almacenamiento persistente -------------------------- */

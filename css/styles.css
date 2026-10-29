@@ -63,7 +63,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 .ico { width: 1em; height: 1em; flex-shrink: 0; vertical-align: -0.125em; }
 .btn .ico { font-size: 1.1em; }
 .segment button .ico { margin-right: 6px; }
-.help .ico { color: var(--danger); }
+.ico--heart { color: var(--danger); }
 button { font-family: inherit; cursor: pointer; }
 input, select, textarea { font-family: inherit; }
 
@@ -662,3 +662,35 @@ body.no-group .view { padding-bottom: calc(var(--safe-bottom) + 24px); }
 .toggle-row .help { margin: 0; }
 .toggle-row .switch { flex-shrink: 0; }
 .notify-config { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+
+/* ========================================================================
+   v2.4 · Catálogo personalizable y planificación
+   ======================================================================== */
+.section-title .icon-btn--sm { width: 30px; height: 30px; font-size: 15px; border-radius: 8px; background: transparent; color: var(--text-dim); }
+
+/* Casilla para añadir una tarea habitual a una categoría */
+.tile--add { border-style: dashed; background: transparent; }
+.tile--add .tile__icon { color: var(--text-dim); font-size: 24px; }
+
+/* Repeticiones previstas en Próximas */
+.todo.is-projected { opacity: .55; }
+.todo__check--projected { border-style: dashed; color: var(--text-dim); font-size: 14px; }
+
+/* Selector de tareas habituales en el formulario */
+.chip-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 8px; scrollbar-width: none; }
+.chip-row::-webkit-scrollbar { display: none; }
+.chip-btn {
+  flex-shrink: 0; white-space: nowrap;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text-dim);
+  border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600;
+}
+.chip-btn.is-active { background: var(--accent); border-color: transparent; color: var(--accent-contrast); }
+.picks { display: flex; flex-wrap: wrap; gap: 6px; max-height: 176px; overflow-y: auto; padding: 2px; }
+.pick {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); background: var(--bg-elev-2); color: var(--text);
+  border-radius: 10px; padding: 7px 10px; font-size: 13px;
+}
+.pick .ico { color: var(--text-dim); font-size: 16px; }
+.pick.is-active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.pick.is-active .ico { color: var(--accent); }

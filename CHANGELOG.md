@@ -1,8 +1,35 @@
 # Registro de cambios
 
-Todos los cambios relevantes de **Tareas del Hogar**. Versión actual: **2.3.0**.
+Todos los cambios relevantes de **Tareas**. Versión actual: **2.4.1**.
 
 > Archivo generado desde `js/changelog.js` con `node tools/gen_changelog.mjs`. No editar a mano.
+
+## [2.4.1] — 2026-10-29
+
+### Cambiado
+
+- Al resolver una tarea repetida desde Hoy se planifica la siguiente fecha, igual que se ve en Próximas.
+
+### Corregido
+
+- Las tareas que se repiten aparecen en Hoy el día que les toca, aunque la repetición anterior no se resolviera (antes salían como atrasadas con la fecha vieja).
+
+## [2.4.0] — 2026-10-29
+
+### Añadido
+
+- Catálogo personalizable por grupo: crea, renombra, reordena y elimina categorías, y añade tus propias tareas habituales.
+- Las tareas nuevas se pueden guardar en una categoría: desde el aviso al añadirlas, desde el formulario o manteniéndolas pulsadas.
+- Al planificar, «Elegir de tus tareas» muestra tu catálogo y las recientes, filtrables por categoría.
+
+### Cambiado
+
+- La aplicación pasa a llamarse «Tareas».
+- Planificar desde Próximas abre el formulario con «Otro día» marcado.
+
+### Corregido
+
+- Las tareas que se repiten ya aparecen en Próximas (como repeticiones previstas) sin tener que resolver antes la actual.
 
 ## [2.3.0] — 2026-10-28
 

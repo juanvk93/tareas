@@ -20,6 +20,7 @@ const PATHS = {
   'chevron-left': '<path d="m15 18-6-6 6-6"/>',
   'chevron-right': '<path d="m9 18 6-6-6-6"/>',
   'chevron-down': '<path d="m6 9 6 6 6-6"/>',
+  'chevron-up': '<path d="m18 15-6-6-6 6"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   download: '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',
   upload: '<path d="M12 15V3M7 8l5-5 5 5M4 21h16"/>',

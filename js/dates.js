@@ -56,6 +56,20 @@ export function nextDue(dueDate, repeat, today = todayKey()) {
   return next;
 }
 
+/**
+ * Ocurrencia vigente de una tarea: para las que se repiten, la última fecha de
+ * la serie que no es posterior a hoy. Si la tarea va atrasada, las
+ * repeticiones perdidas se agrupan en la más reciente (una tarea diaria
+ * siempre es "de hoy"; una semanal solo va atrasada si ya pasó su día).
+ * Sin repetición (o con fecha futura) es su propia fecha.
+ */
+export function currentDue(dueDate, repeat, today = todayKey()) {
+  if (!repeat || repeat === 'none' || dueDate >= today) return dueDate;
+  let cur = dueDate;
+  for (let next = step(cur, repeat); next && next <= today; next = step(cur, repeat)) cur = next;
+  return cur;
+}
+
 /** Diferencia en días naturales entre dos claves (b - a). */
 export function daysBetween(a, b) {
   return Math.round((parseYmd(b) - parseYmd(a)) / 86400000);
