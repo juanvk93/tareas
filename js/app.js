@@ -1,6 +1,6 @@
 /* Punto de entrada y orquestación de la interfaz. */
 import * as db from './db.js';
-import { syncNow, testConnection } from './sync.js';
+import { syncNow, testConnection, checkSyncUrl } from './sync.js';
 import { APP_VERSION, CHANGELOG, compareVersions } from './changelog.js';
 import { icon, TASK_ICONS } from './icons.js';
 import { notify, flushQueue, testNotify, randomTopic, isValidTopic, topicUrl } from './notify.js';
@@ -16,8 +16,8 @@ const PERSONAL_GROUP = 'Mis tareas'; // Nombre propuesto para el grupo privado.
 /* Código de Google Apps Script que el usuario debe pegar (copiar botón). */
 const APPS_SCRIPT_CODE = `/**
  * Backend de sincronizacion para "Tareas".
- * Pegar en Extensiones > Apps Script y desplegar como Aplicacion web
- * (Ejecutar como: Yo | Quien tiene acceso: Cualquier persona).
+ * Pegar en Extensiones > Apps Script, ejecutar doGet una vez para autorizarlo
+ * y desplegar como Aplicacion web (Ejecutar como: Yo | Acceso: Cualquier usuario).
  */
 var SHEET_NAME = 'tareas_data';
 var SECRET = ''; // Opcional: pon una clave aqui y la misma en la app.
@@ -1422,6 +1422,8 @@ async function renderGrupo() {
     const url = $('#set-url').value.trim();
     const other = url && state.settings.groups.find((x) => x.id !== g.id && x.syncUrl === url);
     if (other) return toast(`Esa hoja ya la usa «${other.name}». Cada grupo necesita la suya.`, 'err');
+    const bad = url && checkSyncUrl(url);
+    if (bad) return toast(bad, 'err');
     await save({ syncUrl: url, syncSecret: $('#set-secret').value.trim(), autoSync: $('#set-autosync').checked });
     await renderGrupo();
     if (url) await doSync(false, g.id);
@@ -1570,12 +1572,13 @@ function openGuideModal() {
       <button class="btn btn--sm" id="gs-copy" style="position:absolute;top:8px;right:8px">${icon('copy')}Copiar</button>
     </div>
     <ol start="4" style="padding-left:20px;line-height:1.6;font-size:14px">
+      <li><b>Autorízalo:</b> elige la función <code>doGet</code> en el desplegable de arriba y pulsa <b>Ejecutar</b> → Revisar permisos → tu cuenta → Configuración avanzada → Ir a … (no seguro) → <b>Permitir</b>. Sin esto la app da «Acceso denegado».</li>
       <li>Pulsa <b>Implementar → Nueva implementación</b>.</li>
-      <li>Tipo: <b>Aplicación web</b>. Ejecutar como: <b>Yo</b>. Con acceso: <b>Cualquier persona</b>.</li>
+      <li>Tipo: <b>Aplicación web</b>. Ejecutar como: <b>Yo</b>. Quién tiene acceso: <b>Cualquier usuario</b>.</li>
       <li>Copia la <b>URL</b> que termina en <code>/exec</code>, pégala en Grupo → Compartir tareas y pulsa <b>Guardar</b>.</li>
       <li>Pulsa <b>Invitar a alguien</b>: la invitación ya lleva la URL, tu pareja no tiene que copiar nada.</li>
     </ol>
-    <p class="help">La primera vez Google pedirá autorizar el script (es tuyo, es seguro). Si añades una <code>SECRET</code> en el código, ponla también en el campo "Clave secreta".</p>
+    <p class="help">El aviso de «no seguro» sale porque el script es tuyo y Google no lo ha revisado. Para comprobarlo, abre la URL en incógnito: debe mostrar <code>{"ok":true,…}</code>. Si cambias el código, crea una <b>nueva versión</b> de la implementación. Si añades una <code>SECRET</code> en el código, ponla también en el campo "Clave secreta".</p>
     <div class="modal__actions"><button class="btn btn--primary btn--block" data-close>Entendido</button></div>
   `, {
     wide: true,
@@ -1721,6 +1724,7 @@ async function init() {
   window.addEventListener('hashchange', checkInviteLink);
 
   await setView('hoy');
+  window.__tareasBooted = true; // Ver el arranque de seguridad de index.html.
   await checkInviteLink();
   if (!$('.modal-overlay')) await showWhatsNewIfUpdated();
 
@@ -1729,7 +1733,8 @@ async function init() {
 
   // Service Worker
   if ('serviceWorker' in navigator) {
-    try { await navigator.serviceWorker.register(new URL('sw.js', window.location.href)); }
+    // updateViaCache 'none': comprobar sw.js siempre en la red (no en la caché HTTP).
+    try { await navigator.serviceWorker.register(new URL('sw.js', window.location.href), { updateViaCache: 'none' }); }
     catch (err) { console.warn('SW no registrado:', err); }
   }
 }

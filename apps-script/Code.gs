@@ -6,12 +6,14 @@
  * 1. Crea una Google Sheet nueva (hoja de cálculo en blanco).
  * 2. Menú: Extensiones → Apps Script.
  * 3. Borra el contenido del editor y pega TODO este archivo.
- * 4. Implementar → Nueva implementación → Tipo: "Aplicación web".
+ * 4. AUTORIZA EL SCRIPT: elige la función doGet arriba y pulsa Ejecutar →
+ *    Revisar permisos → tu cuenta → Configuración avanzada → Ir a … → Permitir.
+ *    (Sin esto Google responde 403 "Acceso denegado" a la app.)
+ * 5. Implementar → Nueva implementación → Tipo: "Aplicación web".
  *      - Ejecutar como: Yo (tu cuenta)
- *      - Quién tiene acceso: Cualquier persona
- * 5. Autoriza el script cuando lo pida (es tuyo).
- * 6. Copia la URL que termina en /exec y pégala en Ajustes → Sincronización.
- * 7. Comparte esa misma URL con tu pareja o familia.
+ *      - Quién tiene acceso: Cualquier usuario
+ * 6. Copia la URL que termina en /exec y pégala en la app: Grupo → Compartir tareas.
+ * 7. Invita a tu pareja desde la app (la invitación ya lleva la URL).
  *
  * SEGURIDAD (opcional): escribe una clave en SECRET y ponla también en el
  * campo "Clave secreta" de la app. Sin clave, cualquiera con la URL puede

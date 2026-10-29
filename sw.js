@@ -1,12 +1,12 @@
 /* Service Worker — Tareas del Hogar
- * Estrategia: cache-first para el "app shell" (mismo origen), la red se ignora
+ * Estrategia: cache-first por versión para el "app shell" (mismo origen), la red se ignora
  * para peticiones cross-origin (sincronización con Google Apps Script y avisos a ntfy).
  *
  * IMPORTANTE: al publicar una versión nueva, sube CACHE_VERSION para forzar
  * la actualización de la caché en los dispositivos. Debe coincidir con la
  * versión declarada en js/changelog.js.
  */
-const CACHE_VERSION = 'v2.4.1';
+const CACHE_VERSION = 'v2.4.2';
 const CACHE_NAME = `tareas-hogar-${CACHE_VERSION}`;
 
 const APP_SHELL = [
@@ -29,12 +29,15 @@ const APP_SHELL = [
   './icons/icon-maskable-512.png'
 ];
 
+// Todo el shell sale de la red sin pasar por la caché HTTP del navegador
+// (cache: 'reload'): GitHub Pages cachea 10 min y, si no, una versión podía
+// quedar con app.js nuevo y algún módulo viejo, y la app no arrancaba.
+// Si falla alguna descarga, la instalación falla y sigue la versión anterior.
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
+      .then((cache) => cache.addAll(APP_SHELL.map((url) => new Request(url, { cache: 'reload' }))))
       .then(() => self.skipWaiting())
-      .catch((err) => console.warn('[SW] Fallo al precargar el shell:', err))
   );
 });
 
@@ -61,24 +64,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Cache-first estricto: cada versión sirve SOLO sus archivos (nada de
+  // refrescar sueltos en segundo plano, que mezclaba versiones). Lo nuevo
+  // llega al subir CACHE_VERSION. ignoreSearch: './index.html?x' = shell.
   event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) {
-        // Cache-first, pero refrescamos en segundo plano (stale-while-revalidate).
-        fetch(req).then((res) => {
-          if (res && res.ok) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, res.clone()));
-          }
-        }).catch(() => {});
-        return cached;
-      }
-      return fetch(req).then((res) => {
-        if (res && res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-        }
-        return res;
-      }).catch(() => caches.match('./index.html'));
-    })
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.match(req, { ignoreSearch: true }))
+      .then((cached) => cached || fetch(req).catch(() =>
+        req.mode === 'navigate' ? caches.match('./index.html') : Response.error()))
   );
 });

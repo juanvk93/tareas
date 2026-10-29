@@ -1,8 +1,19 @@
 # Registro de cambios
 
-Todos los cambios relevantes de **Tareas**. Versión actual: **2.4.1**.
+Todos los cambios relevantes de **Tareas**. Versión actual: **2.4.2**.
 
 > Archivo generado desde `js/changelog.js` con `node tools/gen_changelog.mjs`. No editar a mano.
+
+## [2.4.2] — 2026-10-29
+
+### Cambiado
+
+- La guía «Cómo configurar Google Sheets» incluye el paso que faltaba: ejecutar el script una vez para autorizarlo.
+
+### Corregido
+
+- La app instalada podía quedarse vacía (v0.0.0 y sin poder cambiar de pestaña) tras una actualización: ahora cada versión se descarga completa y, si aun así no arranca, aparece un botón «Reparar y recargar».
+- Google Sheets: en vez de «Failed to fetch», la app explica qué falla (URL que no termina en /exec, implementación que no es pública o script sin pegar).
 
 ## [2.4.1] — 2026-10-29
 

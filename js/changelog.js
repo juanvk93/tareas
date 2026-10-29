@@ -12,9 +12,18 @@
  *
  * Tipos de cambio: "add" (nuevo), "chg" (cambio/mejora), "fix" (corrección).
  */
-export const APP_VERSION = '2.4.1';
+export const APP_VERSION = '2.4.2';
 
 export const CHANGELOG = [
+  {
+    version: '2.4.2',
+    date: '2026-10-29',
+    changes: [
+      { type: 'fix', text: 'La app instalada podía quedarse vacía (v0.0.0 y sin poder cambiar de pestaña) tras una actualización: ahora cada versión se descarga completa y, si aun así no arranca, aparece un botón «Reparar y recargar».' },
+      { type: 'fix', text: 'Google Sheets: en vez de «Failed to fetch», la app explica qué falla (URL que no termina en /exec, implementación que no es pública o script sin pegar).' },
+      { type: 'chg', text: 'La guía «Cómo configurar Google Sheets» incluye el paso que faltaba: ejecutar el script una vez para autorizarlo.' }
+    ]
+  },
   {
     version: '2.4.1',
     date: '2026-10-29',

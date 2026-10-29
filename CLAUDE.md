@@ -237,6 +237,13 @@ de los `<select>` no admiten SVG: ahí va solo el texto.
   migraciones). Si un cambio rompe los datos locales, basta con borrar los datos del sitio.
 
 - **`CACHE_VERSION` (sw.js) ↔ `APP_VERSION` (changelog.js)**: mantener sincronizados.
+- **Service Worker = cache-first estricto por versión:** precarga con `cache: 'reload'` (salta la
+  caché HTTP de 10 min de GitHub Pages) y no refresca archivos sueltos; así nunca mezcla un
+  `app.js` nuevo con módulos viejos (eso dejaba la app en «v0.0.0» sin arrancar). Todo archivo
+  nuevo del shell debe ir en `APP_SHELL`. Se registra con `updateViaCache: 'none'`.
+- **Arranque de seguridad** (script inline al final de `index.html`): si `window.__tareasBooted`
+  (lo pone `init()` tras pintar) no está a los 5 s, muestra el error y «Reparar y recargar»
+  (borra SW y cachés, no IndexedDB).
 - No mandar cabeceras extra en el `fetch` de sync (rompería con preflight en Apps Script).
 - Los borrados son blandos: nunca hagas `delete` físico si el registro debe sincronizarse.
 - El export **no** incluye `syncUrl`/`syncSecret`/`ntfyTopic` de ningún grupo (por seguridad).

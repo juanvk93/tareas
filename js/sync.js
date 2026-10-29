@@ -45,19 +45,40 @@ function buildUrl(base, params) {
   return u.toString();
 }
 
+/** Problema típico de la URL del Web App, o '' si parece correcta. */
+export function checkSyncUrl(url) {
+  let u;
+  try { u = new URL(url); } catch { return 'La URL no es válida'; }
+  if (u.hostname !== 'script.google.com') return 'La URL debe ser de script.google.com (la del Web App, no la de la hoja)';
+  if (/\/dev$/.test(u.pathname)) return 'Esa es la URL de pruebas (/dev): usa la que termina en /exec';
+  if (!/\/exec$/.test(u.pathname)) return 'La URL debe terminar en /exec (Implementar → Gestionar implementaciones)';
+  return '';
+}
+
+// "Failed to fetch" no dice nada: casi siempre es que Google responde con su
+// página de inicio de sesión (sin CORS) porque el Web App no es público.
+async function call(url, opts) {
+  try {
+    return await fetch(url, opts);
+  } catch (err) {
+    if (!navigator.onLine) throw new Error('Sin conexión a internet');
+    throw new Error('Google no permite el acceso. En Apps Script ejecuta doGet una vez y autorízalo, y revisa que la implementación tenga «Quién tiene acceso: Cualquier usuario»');
+  }
+}
+
 async function remotePull(url, token) {
-  const res = await fetch(buildUrl(url, { action: 'pull', token: token || '' }), {
+  const res = await call(buildUrl(url, { action: 'pull', token: token || '' }), {
     method: 'GET',
     redirect: 'follow'
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
-  const json = await res.json();
+  const json = await res.json().catch(() => { throw new Error('La respuesta no es del script de Tareas (¿has pegado Code.gs y creado una implementación nueva?)'); });
   if (!json.ok) throw new Error(json.error || 'Error del servidor');
   return json.records || [];
 }
 
 async function remotePush(url, token, records) {
-  const res = await fetch(url, {
+  const res = await call(url, {
     method: 'POST',
     // text/plain => petición simple, sin preflight
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -65,7 +86,7 @@ async function remotePush(url, token, records) {
     redirect: 'follow'
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
-  const json = await res.json();
+  const json = await res.json().catch(() => { throw new Error('La respuesta no es del script de Tareas (¿has pegado Code.gs y creado una implementación nueva?)'); });
   if (!json.ok) throw new Error(json.error || 'Error del servidor');
   return json;
 }
@@ -90,6 +111,8 @@ async function applyRemote(remoteRows, groupId) {
 /** Sincronización bidireccional completa de un grupo. */
 export async function syncNow(group) {
   if (!group || !group.syncUrl) throw new Error('No hay URL de sincronización configurada');
+  const bad = checkSyncUrl(group.syncUrl);
+  if (bad) throw new Error(bad);
 
   // 1) Descargar y fusionar lo remoto.
   const remote = await remotePull(group.syncUrl, group.syncSecret);
@@ -109,6 +132,8 @@ export async function syncNow(group) {
 
 /** Prueba de conexión (solo lectura). */
 export async function testConnection(url, token) {
+  const bad = checkSyncUrl(url);
+  if (bad) throw new Error(bad);
   const records = await remotePull(url, token);
   return { ok: true, count: records.length };
 }

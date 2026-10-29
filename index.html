@@ -68,5 +68,30 @@
   <div id="toast-root" class="toast-root"></div>
 
   <script type="module" src="js/app.js"></script>
+  <!-- Arranque de seguridad: si app.js no llega a pintar la app (módulo que no
+       carga, caché corrupta…), muestra el error y un botón que borra la caché
+       del Service Worker y recarga. NO borra las tareas (IndexedDB). -->
+  <script>
+    (function () {
+      var errors = [];
+      window.addEventListener('error', function (e) { errors.push(e.message || (e.target && e.target.src) || 'Error'); }, true);
+      window.addEventListener('unhandledrejection', function (e) { errors.push(String(e.reason && e.reason.message || e.reason)); });
+      setTimeout(function () {
+        if (window.__tareasBooted) return;
+        var v = document.getElementById('view');
+        v.innerHTML = '<div class="card" style="margin:24px 0"><h2 style="margin:0 0 8px">La app no ha podido arrancar</h2>'
+          + '<p class="help" style="margin:0 0 12px">Suele pasar tras una actualización a medias. Reparar borra la copia guardada de la app (no tus tareas) y la vuelve a descargar.</p>'
+          + '<button class="btn btn--primary btn--block" id="boot-fix">Reparar y recargar</button>'
+          + '<pre class="help" style="white-space:pre-wrap;margin:12px 0 0"></pre></div>';
+        v.querySelector('pre').textContent = errors.join('\n');
+        document.getElementById('boot-fix').onclick = function () {
+          var jobs = [];
+          if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); }));
+          if (window.caches) jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }));
+          Promise.all(jobs).catch(function () {}).then(function () { location.reload(); });
+        };
+      }, 5000);
+    })();
+  </script>
 </body>
 </html>

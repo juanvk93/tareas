@@ -67,11 +67,18 @@ privado* o *Unirme con una invitación*.
 2. Menú **Extensiones → Apps Script**.
 3. Borra el contenido y pega el código de [`apps-script/Code.gs`](apps-script/Code.gs)
    (también puedes copiarlo desde la app: **Grupo → Cómo configurar Google Sheets**).
-4. **Implementar → Nueva implementación → Aplicación web**:
+4. **Autoriza el script (imprescindible):** elige la función `doGet` en el desplegable de arriba
+   y pulsa **Ejecutar** → *Revisar permisos* → tu cuenta → *Configuración avanzada* →
+   *Ir a … (no seguro)* → **Permitir**. Sin este paso Google responde «Acceso denegado» (403) y
+   la app muestra un error de sincronización aunque el acceso sea «Cualquier usuario».
+5. **Implementar → Nueva implementación → Aplicación web**:
    - *Ejecutar como*: **Yo**
-   - *Quién tiene acceso*: **Cualquier persona**
-5. Autoriza el script cuando lo pida (es tuyo, es seguro).
+   - *Quién tiene acceso*: **Cualquier usuario** (en inglés, *Anyone*)
 6. Copia la **URL** que termina en `/exec`, pégala en **Grupo → Compartir tareas** y pulsa **Guardar**.
+
+Para comprobarlo, abre la URL en una ventana de incógnito: debe mostrar `{"ok":true,...}`.
+Si cambias el código o el acceso, crea una **nueva versión** (Gestionar implementaciones → lápiz →
+Versión: *Nueva versión*); la URL no cambia.
 
 **Seguridad (opcional):** en `Code.gs` puedes poner una `SECRET` y escribir la misma clave en
 **Grupo → Clave secreta**. La invitación ya la incluye, así que tu pareja no tiene que teclearla.
