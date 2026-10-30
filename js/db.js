@@ -19,7 +19,7 @@
  * sincronizarlos entre dispositivos (tombstones). La interfaz filtra los
  * registros con deleted:true.
  */
-import { nextDue } from './dates.js';
+import { nextDue, isRepeating, normalizeRepeat } from './dates.js';
 import { DEFAULT_CATALOG } from './catalog.js';
 
 const DB_NAME = 'tareas-hogar';
@@ -174,7 +174,7 @@ export async function addTodo({ groupId, title, icon, dueDate, repeat, assignee,
   const id = uid();
   const rec = {
     id, groupId, title: title.trim(), icon: icon || 'sparkles', dueDate,
-    repeat: repeat || 'none', assignee: assignee || null, note: note || '',
+    repeat: normalizeRepeat(repeat), assignee: assignee || null, note: note || '',
     done: false, doneAt: 0, doneBy: null,
     createdBy: createdBy || null, createdAt: Date.now(),
     seriesId: id,
@@ -210,7 +210,7 @@ function occurrenceId(seriesId, dueDate) { return `${seriesId}@${dueDate}`; }
  */
 export async function completeTodo(id, memberId) {
   const rec = await updateTodo(id, { done: true, doneAt: Date.now(), doneBy: memberId || null });
-  if (!rec || rec.repeat === 'none') return { todo: rec, next: null };
+  if (!rec || !isRepeating(rec.repeat)) return { todo: rec, next: null };
   const due = nextDue(rec.dueDate, rec.repeat);
   const nextId = occurrenceId(rec.seriesId || rec.id, due);
   const existing = await getOne('todos', nextId);
@@ -227,7 +227,7 @@ export async function completeTodo(id, memberId) {
 /** Deshace "resuelta". Quita la repetición que se generó si nadie la ha tocado. */
 export async function reopenTodo(id) {
   const rec = await updateTodo(id, { done: false, doneAt: 0, doneBy: null });
-  if (!rec || rec.repeat === 'none') return rec;
+  if (!rec || !isRepeating(rec.repeat)) return rec;
   const nextId = occurrenceId(rec.seriesId || rec.id, nextDue(rec.dueDate, rec.repeat));
   const next = await getOne('todos', nextId);
   if (next && !next.deleted && !next.done) await deleteTodo(nextId);

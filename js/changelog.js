@@ -12,9 +12,17 @@
  *
  * Tipos de cambio: "add" (nuevo), "chg" (cambio/mejora), "fix" (corrección).
  */
-export const APP_VERSION = '2.4.2';
+export const APP_VERSION = '2.5.0';
 
 export const CHANGELOG = [
+  {
+    version: '2.5.0',
+    date: '2026-10-30',
+    changes: [
+      { type: 'add', text: 'Más opciones para repetir tareas: cada 2 o 3 semanas, cada 2, 3 o 6 meses y cada año.' },
+      { type: 'add', text: 'Repetición personalizada: «Cada N días, semanas, meses o años» (por ejemplo, cada 10 días).' }
+    ]
+  },
   {
     version: '2.4.2',
     date: '2026-10-29',

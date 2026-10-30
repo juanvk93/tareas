@@ -694,3 +694,9 @@ body.no-group .view { padding-bottom: calc(var(--safe-bottom) + 24px); }
 .pick .ico { color: var(--text-dim); font-size: 16px; }
 .pick.is-active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .pick.is-active .ico { color: var(--accent); }
+
+/* ===== v2.5: repetición personalizada (Cada [N] [unidad]) ===== */
+.repeat-custom { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.repeat-custom > span { color: var(--text-dim); white-space: nowrap; }
+.repeat-custom .input { width: 80px; flex: none; text-align: center; }
+.repeat-custom .select { flex: 1; }

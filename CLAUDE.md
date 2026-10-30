@@ -119,7 +119,7 @@ Definidos en `db.js` (DB v3). `DATA_STORES = ['members', 'todos', 'categories', 
 | Store     | Campos clave                                                                 |
 |-----------|------------------------------------------------------------------------------|
 | `members` | `id, groupId, name, color, updatedAt, deleted`                               |
-| `todos`   | `id, groupId, title, icon, dueDate('YYYY-MM-DD'), repeat(none/daily/weekly/monthly), assignee, note, done, doneAt, doneBy, createdBy, createdAt, seriesId, updatedAt, deleted` |
+| `todos`   | `id, groupId, title, icon, dueDate('YYYY-MM-DD'), repeat('none' o '<N><d|w|m|y>', p. ej. '2w'), assignee, note, done, doneAt, doneBy, createdBy, createdAt, seriesId, updatedAt, deleted` |
 | `categories` | `id, groupId, name, order, updatedAt, deleted`                            |
 | `items`   | `id, groupId, name, icon, categoryId, order, updatedAt, deleted` (tareas habituales) |
 | `meta`    | `key, value` (`settings`, cola `ntfyQueue`)                                  |
@@ -133,6 +133,10 @@ Definidos en `db.js` (DB v3). `DATA_STORES = ['members', 'todos', 'categories', 
 - **Ocurrencia vigente:** en la UI la fecha de una tarea es `dueOf(t)` = `currentDue()` (dates.js):
   para las repetidas, la última fecha de la serie ≤ hoy (las repeticiones perdidas se agrupan; una
   diaria siempre es "de hoy"). El `dueDate` guardado no se toca; `projectRepeats()` parte de ahí.
+- **Formato de `repeat`:** `'none'` o `'<N><unidad>'` (d días, w semanas, m meses, y años; `'2w'` =
+  cada 2 semanas). Usa siempre los helpers de `dates.js`: `parseRepeat`, `isRepeating`,
+  `normalizeRepeat`, `repeatLabel`; `REPEAT_PRESETS` son las opciones rápidas del selector y el
+  resto va por «Personalizado…». `daily/weekly/monthly` se aceptan como alias.
 - **Repeticiones:** `completeTodo()` marca hecha y crea la siguiente con id determinista
   `${seriesId}@${dueDate}` (si los dos móviles la resuelven a la vez no se duplica).
   `reopenTodo()` borra esa siguiente si sigue sin tocar. `nextDue()` salta los días perdidos.

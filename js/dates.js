@@ -30,18 +30,39 @@ function addMonths(key, n) {
   return ymd(d);
 }
 
-export const REPEATS = {
-  none: 'No se repite',
-  daily: 'Cada día',
-  weekly: 'Cada semana',
-  monthly: 'Cada mes'
-};
+/* Repetición = texto '<N><unidad>' con unidad d (días), w (semanas), m (meses)
+ * o y (años): '1d' cada día, '2w' cada 2 semanas, '6m' cada 6 meses…
+ * 'none' (o vacío) = no se repite. daily/weekly/monthly se aceptan como alias. */
+const ALIASES = { daily: '1d', weekly: '1w', monthly: '1m', yearly: '1y' };
+const UNITS = { d: ['día', 'días'], w: ['semana', 'semanas'], m: ['mes', 'meses'], y: ['año', 'años'] };
+export const REPEAT_UNITS = Object.fromEntries(Object.entries(UNITS).map(([k, v]) => [k, v[1]]));
+
+/** { n, unit } de una repetición, o null si no se repite. */
+export function parseRepeat(repeat) {
+  const m = /^(\d{1,3})([dwmy])$/.exec(ALIASES[repeat] || repeat || '');
+  return m && Number(m[1]) > 0 ? { n: Number(m[1]), unit: m[2] } : null;
+}
+export const isRepeating = (repeat) => !!parseRepeat(repeat);
+/** Forma canónica ('weekly' → '1w'); 'none' si no se repite. */
+export function normalizeRepeat(repeat) {
+  const p = parseRepeat(repeat);
+  return p ? `${p.n}${p.unit}` : 'none';
+}
+export function repeatLabel(repeat) {
+  const p = parseRepeat(repeat);
+  if (!p) return 'No se repite';
+  return p.n === 1 ? `Cada ${UNITS[p.unit][0]}` : `Cada ${p.n} ${UNITS[p.unit][1]}`;
+}
+/** Opciones rápidas del selector (el resto, con «Personalizado»). */
+export const REPEAT_PRESETS = ['none', '1d', '1w', '2w', '3w', '1m', '2m', '3m', '6m', '1y'];
 
 function step(key, repeat) {
-  if (repeat === 'daily') return addDays(key, 1);
-  if (repeat === 'weekly') return addDays(key, 7);
-  if (repeat === 'monthly') return addMonths(key, 1);
-  return null;
+  const p = parseRepeat(repeat);
+  if (!p) return null;
+  if (p.unit === 'd') return addDays(key, p.n);
+  if (p.unit === 'w') return addDays(key, 7 * p.n);
+  if (p.unit === 'm') return addMonths(key, p.n);
+  return addMonths(key, 12 * p.n);
 }
 
 /**
@@ -64,7 +85,7 @@ export function nextDue(dueDate, repeat, today = todayKey()) {
  * Sin repetición (o con fecha futura) es su propia fecha.
  */
 export function currentDue(dueDate, repeat, today = todayKey()) {
-  if (!repeat || repeat === 'none' || dueDate >= today) return dueDate;
+  if (!isRepeating(repeat) || dueDate >= today) return dueDate;
   let cur = dueDate;
   for (let next = step(cur, repeat); next && next <= today; next = step(cur, repeat)) cur = next;
   return cur;

@@ -20,7 +20,7 @@ cuentas. Los datos se comparten a través de **tu** Google Sheet.
   «Nueva» y mantén pulsada una para editarla o cambiarla de categoría. Las tareas nuevas que
   escribas se pueden guardar en una categoría. En los grupos compartidos el catálogo es común.
 - 📅 **Próximas:** con el botón **+** planificas tareas para otro día (eligiéndolas de tu
-  catálogo o escribiendo una nueva) y, si quieres, que se **repitan** cada día, semana o mes, o
+  catálogo o escribiendo una nueva) y, si quieres, que se **repitan** (cada día, cada 2 o 3 semanas, cada mes, cada año o cada N días/semanas/meses), o
   que le toquen a alguien en concreto. Las repeticiones previstas también se ven aquí.
 - ✅ **Hechas:** historial y quién ha resuelto cuántas esta semana.
 - 🔔 **Avisos al móvil** con **ntfy** cuando alguien añade o resuelve una tarea.

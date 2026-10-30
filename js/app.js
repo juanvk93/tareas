@@ -4,7 +4,7 @@ import { syncNow, testConnection, checkSyncUrl } from './sync.js';
 import { APP_VERSION, CHANGELOG, compareVersions } from './changelog.js';
 import { icon, TASK_ICONS } from './icons.js';
 import { notify, flushQueue, testNotify, randomTopic, isValidTopic, topicUrl } from './notify.js';
-import { ymd, parseYmd, todayKey, addDays, nextDue, currentDue, REPEATS } from './dates.js';
+import { ymd, parseYmd, todayKey, addDays, nextDue, currentDue, isRepeating, normalizeRepeat, parseRepeat, repeatLabel, REPEAT_PRESETS, REPEAT_UNITS } from './dates.js';
 import { searchItems, guessIcon, normalizeTitle } from './catalog.js';
 
 /* =============================== Constantes ============================== */
@@ -391,7 +391,7 @@ function todoRow(t, memById, { hideDate = false } = {}) {
   }
   const who = memById.get(t.assignee);
   if (who && !t.done) meta.push(`<span class="meta-item">${avatar(who, 'xs')}${esc(who.name)}</span>`);
-  if (t.repeat && t.repeat !== 'none') meta.push(`<span class="meta-item">${icon('repeat')}${esc(REPEATS[t.repeat])}</span>`);
+  if (isRepeating(t.repeat)) meta.push(`<span class="meta-item">${icon('repeat')}${esc(repeatLabel(t.repeat))}</span>`);
   if (t.note) meta.push(`<span class="meta-item">${icon('note')}${esc(t.note)}</span>`);
 
   const check = t.projected
@@ -466,7 +466,7 @@ async function renderHoy() {
     const overdue = dueOf(t) < today;
     const badges = [
       overdue ? `<span class="tile__badge tile__badge--danger" title="Atrasada">${icon('alert')}</span>` : '',
-      t.repeat !== 'none' ? `<span class="tile__badge" title="${esc(REPEATS[t.repeat])}">${icon('repeat')}</span>` : '',
+      isRepeating(t.repeat) ? `<span class="tile__badge" title="${esc(repeatLabel(t.repeat))}">${icon('repeat')}</span>` : '',
       who ? avatar(who, 'xs') : ''
     ].join('');
     return tile({ title: t.title, iconName: t.icon, active: true, overdue,
@@ -619,7 +619,7 @@ function projectRepeats(pending, today) {
   const limit = addDays(today, PROJECT_DAYS);
   const real = new Set(pending.map((t) => `${t.seriesId || t.id}@${t.dueDate}`));
   for (const t of pending) {
-    if (!t.repeat || t.repeat === 'none') continue;
+    if (!isRepeating(t.repeat)) continue;
     let due = currentDue(t.dueDate, t.repeat, today);
     for (let n = 0; n < PROJECT_MAX;) {
       due = nextDue(due, t.repeat, due);
@@ -699,6 +699,10 @@ async function openTodoModal({ todo = null, dueDate = todayKey(), when = '', tit
   const today = todayKey(), tomorrow = addDays(today, 1);
   const cur = todo ? { ...todo } : { title, icon: iconName || (title ? guessIcon(title, its) : 'sparkles'), dueDate, repeat: 'none', assignee: null, note: '' };
   let iconTouched = !!todo || !!iconName;
+  // Repetición: una opción rápida del selector o «Personalizado» (cada N días/semanas/meses/años).
+  const curRepeat = normalizeRepeat(cur.repeat);
+  const repeatSel = REPEAT_PRESETS.includes(curRepeat) ? curRepeat : 'custom';
+  const customRepeat = parseRepeat(curRepeat) || { n: 4, unit: 'w' };
   const whenMode = when || (cur.dueDate === today ? 'today' : cur.dueDate === tomorrow ? 'tomorrow' : 'date');
   const catName = (id) => (cats.find((c) => c.id === id) || {}).name || 'Sin categoría';
   // Opciones del selector "Elegir de tus tareas": catálogo + recientes.
@@ -730,8 +734,16 @@ async function openTodoModal({ todo = null, dueDate = todayKey(), when = '', tit
     </div>
     <div class="field"><label>Repetir</label>
       <select class="select" id="td-repeat">
-        ${Object.entries(REPEATS).map(([k, l]) => `<option value="${k}" ${k === cur.repeat ? 'selected' : ''}>${l}</option>`).join('')}
+        ${REPEAT_PRESETS.map((k) => `<option value="${k}" ${k === repeatSel ? 'selected' : ''}>${repeatLabel(k)}</option>`).join('')}
+        <option value="custom" ${repeatSel === 'custom' ? 'selected' : ''}>Personalizado…</option>
       </select>
+      <div class="repeat-custom ${repeatSel === 'custom' ? '' : 'hidden'}" id="td-repeat-custom">
+        <span>Cada</span>
+        <input class="input" type="number" id="td-repeat-n" min="1" max="365" inputmode="numeric" value="${customRepeat.n}">
+        <select class="select" id="td-repeat-unit">
+          ${Object.entries(REPEAT_UNITS).map(([k, l]) => `<option value="${k}" ${k === customRepeat.unit ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+      </div>
     </div>
     <div class="field ${G().personal ? 'hidden' : ''}"><label>¿A quién le toca?</label>
       <div class="person-picker" id="td-who">
@@ -816,6 +828,13 @@ async function openTodoModal({ todo = null, dueDate = todayKey(), when = '', tit
         else if (w === 'tomorrow') dateInput.value = tomorrow;
         else { if (dateInput.value < tomorrow) dateInput.value = tomorrow; dateInput.focus(); }
       });
+      const repeatSelect = $('#td-repeat', modal);
+      repeatSelect.onchange = () => {
+        $('#td-repeat-custom', modal).classList.toggle('hidden', repeatSelect.value !== 'custom');
+        if (repeatSelect.value === 'custom') $('#td-repeat-n', modal).focus();
+      };
+      const readRepeat = () => repeatSelect.value !== 'custom' ? repeatSelect.value
+        : normalizeRepeat(`${Math.min(365, parseInt($('#td-repeat-n', modal).value, 10) || 0)}${$('#td-repeat-unit', modal).value}`);
       $$('[data-mid]', modal).forEach((b) => b.onclick = () => {
         cur.assignee = b.dataset.mid || null;
         $$('[data-mid]', modal).forEach((x) => x.classList.toggle('is-active', x === b));
@@ -826,7 +845,9 @@ async function openTodoModal({ todo = null, dueDate = todayKey(), when = '', tit
         const name = titleInput.value.trim();
         if (!name) return toast('Escribe o elige qué hay que hacer', 'err');
         const due = dateInput.value || today;
-        const fields = { title: name, icon: cur.icon, dueDate: due, repeat: $('#td-repeat', modal).value, assignee: cur.assignee, note: $('#td-note', modal).value.trim() };
+        const repeat = readRepeat();
+        if (repeatSelect.value === 'custom' && repeat === 'none') return toast('Indica cada cuánto se repite (1 a 365)', 'err');
+        const fields = { title: name, icon: cur.icon, dueDate: due, repeat, assignee: cur.assignee, note: $('#td-note', modal).value.trim() };
         // Guardar en el catálogo (si se pidió y aún no está).
         if (!itemByTitle.has(normalizeTitle(name)) && catSelect.value) {
           let categoryId = catSelect.value;

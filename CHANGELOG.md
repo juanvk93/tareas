@@ -1,8 +1,15 @@
 # Registro de cambios
 
-Todos los cambios relevantes de **Tareas**. Versión actual: **2.4.2**.
+Todos los cambios relevantes de **Tareas**. Versión actual: **2.5.0**.
 
 > Archivo generado desde `js/changelog.js` con `node tools/gen_changelog.mjs`. No editar a mano.
+
+## [2.5.0] — 2026-10-30
+
+### Añadido
+
+- Más opciones para repetir tareas: cada 2 o 3 semanas, cada 2, 3 o 6 meses y cada año.
+- Repetición personalizada: «Cada N días, semanas, meses o años» (por ejemplo, cada 10 días).
 
 ## [2.4.2] — 2026-10-29
 

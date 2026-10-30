@@ -6,7 +6,7 @@
  * la actualización de la caché en los dispositivos. Debe coincidir con la
  * versión declarada en js/changelog.js.
  */
-const CACHE_VERSION = 'v2.4.2';
+const CACHE_VERSION = 'v2.5.0';
 const CACHE_NAME = `tareas-hogar-${CACHE_VERSION}`;
 
 const APP_SHELL = [
