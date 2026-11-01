@@ -1,7 +1,7 @@
 /* Capa de datos sobre IndexedDB.
  *
  * Almacenes (object stores) que se sincronizan con su grupo:
- *   - members : miembros del grupo   {id, groupId, name, color, updatedAt, deleted}
+ *   - members : miembros del grupo   {id, groupId, name, color, notify, ntfyTopic, ntfyServer, updatedAt, deleted}
  *   - todos      : tareas pendientes  {id, groupId, title, icon, dueDate, repeat, assignee,
  *                                     note, done, doneAt, doneBy, createdBy, createdAt,
  *                                     seriesId, updatedAt, deleted}
@@ -19,12 +19,12 @@
  * sincronizarlos entre dispositivos (tombstones). La interfaz filtra los
  * registros con deleted:true.
  */
-import { nextDue, isRepeating, normalizeRepeat } from './dates.js';
-import { DEFAULT_CATALOG } from './catalog.js';
+import { nextDue, isRepeating, normalizeRepeat, alignDue, nextDueOnComplete, resumeDue, isPaused, todayKey, postponePatch, seriesBase } from './dates.js';
+import { DEFAULT_CATALOG, DEFAULT_ROUTINES } from './catalog.js';
 
 const DB_NAME = 'tareas-hogar';
-const DB_VERSION = 3;
-export const DATA_STORES = ['members', 'todos', 'categories', 'items'];
+const DB_VERSION = 4;
+export const DATA_STORES = ['members', 'todos', 'categories', 'items', 'routines'];
 
 let _db = null;
 
@@ -96,9 +96,8 @@ const GROUP_DEFAULTS = {
   syncSecret: '',
   autoSync: true,
   lastSyncAt: 0,
-  notifyEnabled: false,
-  ntfyServer: 'https://ntfy.sh',
-  ntfyTopic: ''
+  ntfyServer: 'https://ntfy.sh', // Servidor ntfy del grupo (cada miembro tiene su tema).
+  rollOver: false        // Las tareas sin repetición que no se hicieron se ven como de hoy.
 };
 
 export async function getSettings() {
@@ -147,8 +146,9 @@ export function uid() {
 }
 
 /* --------------------------- Miembros del grupo -------------------------- */
-export async function addMember({ groupId, name, color }) {
-  const rec = { id: uid(), groupId, name: name.trim(), color, updatedAt: Date.now(), deleted: false };
+/** notify + ntfyTopic (+ ntfyServer): dónde recibe avisos esta persona (ver notify.js). */
+export async function addMember({ groupId, name, color, notify = false, ntfyTopic = '', ntfyServer = '' }) {
+  const rec = { id: uid(), groupId, name: name.trim(), color, notify, ntfyTopic, ntfyServer, updatedAt: Date.now(), deleted: false };
   await putRaw('members', rec);
   return rec;
 }
@@ -170,11 +170,12 @@ export async function members(groupId) {
 }
 
 /* ---------------------------- Tareas pendientes -------------------------- */
-export async function addTodo({ groupId, title, icon, dueDate, repeat, assignee, note, createdBy }) {
+export async function addTodo({ groupId, title, icon, dueDate, repeat, repeatFrom, assignee, note, createdBy }) {
   const id = uid();
+  repeat = normalizeRepeat(repeat);
   const rec = {
-    id, groupId, title: title.trim(), icon: icon || 'sparkles', dueDate,
-    repeat: normalizeRepeat(repeat), assignee: assignee || null, note: note || '',
+    id, groupId, title: title.trim(), icon: icon || 'sparkles', dueDate: alignDue(dueDate, repeat),
+    repeat, repeatFrom: repeatFrom === 'done' ? 'done' : null, assignee: assignee || null, note: note || '',
     done: false, doneAt: 0, doneBy: null,
     createdBy: createdBy || null, createdAt: Date.now(),
     seriesId: id,
@@ -209,14 +210,19 @@ function occurrenceId(seriesId, dueDate) { return `${seriesId}@${dueDate}`; }
  * Devuelve { todo, next } (next = nueva repetición o null).
  */
 export async function completeTodo(id, memberId) {
-  const rec = await updateTodo(id, { done: true, doneAt: Date.now(), doneBy: memberId || null });
-  if (!rec || !isRepeating(rec.repeat)) return { todo: rec, next: null };
-  const due = nextDue(rec.dueDate, rec.repeat);
-  const nextId = occurrenceId(rec.seriesId || rec.id, due);
+  const cur = await getOne('todos', id);
+  if (!cur || cur.deleted) return { todo: null, next: null };
+  // La siguiente: según el calendario de la serie o, si cuenta desde que se
+  // hace, desde hoy. Su id se guarda en la resuelta para que Deshacer la encuentre.
+  const due = nextDueOnComplete(cur);
+  const nextId = due ? occurrenceId(cur.seriesId || cur.id, due) : null;
+  const rec = await updateTodo(id, { done: true, doneAt: Date.now(), doneBy: memberId || null, nextId });
+  if (!nextId) return { todo: rec, next: null };
   const existing = await getOne('todos', nextId);
   if (existing && !existing.deleted) return { todo: rec, next: existing };
   const next = Object.assign({}, rec, {
-    id: nextId, dueDate: due, done: false, doneAt: 0, doneBy: null,
+    id: nextId, dueDate: due, done: false, doneAt: 0, doneBy: null, nextId: null,
+    paused: false, pausedUntil: null, pausedDue: null, seriesDue: null,
     seriesId: rec.seriesId || rec.id, createdAt: Date.now(),
     updatedAt: Date.now(), deleted: false
   });
@@ -226,12 +232,61 @@ export async function completeTodo(id, memberId) {
 
 /** Deshace "resuelta". Quita la repetición que se generó si nadie la ha tocado. */
 export async function reopenTodo(id) {
-  const rec = await updateTodo(id, { done: false, doneAt: 0, doneBy: null });
+  const before = await getOne('todos', id);
+  const rec = await updateTodo(id, { done: false, doneAt: 0, doneBy: null, nextId: null });
   if (!rec || !isRepeating(rec.repeat)) return rec;
-  const nextId = occurrenceId(rec.seriesId || rec.id, nextDue(rec.dueDate, rec.repeat));
+  const nextId = before.nextId || occurrenceId(rec.seriesId || rec.id, nextDue(rec.dueDate, rec.repeat));
   const next = await getOne('todos', nextId);
   if (next && !next.deleted && !next.done) await deleteTodo(nextId);
   return rec;
+}
+
+/* ------------------------------- Posponer -------------------------------- */
+/** Pospone solo esta vez (en una repetida, la serie sigue su calendario).
+ * Devuelve { todo, undo } (undo = campos para deshacerlo con updateTodo). */
+export async function postponeTodo(id, newDate, today = todayKey()) {
+  const rec = await getOne('todos', id);
+  if (!rec || rec.deleted || rec.done) return { todo: null, undo: null };
+  const undo = { dueDate: rec.dueDate, seriesDue: rec.seriesDue || null };
+  return { todo: await updateTodo(id, postponePatch(rec, newDate, today)), undo };
+}
+
+/* ------------------------- Pausa (vacaciones) ---------------------------- */
+/**
+ * Pausa una tarea repetida hasta `until` ('YYYY-MM-DD') o, sin fecha, hasta que
+ * se reanude. Con fecha vuelve sola el primer día que le toque desde `until`.
+ */
+export async function pauseTodo(id, until = null, today = todayKey()) {
+  const rec = await getOne('todos', id);
+  if (!rec || rec.deleted || rec.done) return null;
+  // Si ya estaba en pausa, la fecha original es la de antes de la primera pausa.
+  const base = isPaused(rec, today) && rec.pausedDue ? rec.pausedDue : seriesBase(rec);
+  const patch = until
+    ? { paused: false, pausedUntil: until, pausedDue: base, seriesDue: null, dueDate: resumeDue({ ...rec, dueDate: base }, until) }
+    : { paused: true, pausedUntil: null, pausedDue: base, seriesDue: null };
+  return updateTodo(id, patch);
+}
+
+/** Reanuda ya: vuelve a su primera repetición desde hoy (puede tocar hoy mismo). */
+export async function resumeTodo(id, today = todayKey()) {
+  const rec = await getOne('todos', id);
+  if (!rec || rec.deleted) return null;
+  const base = rec.pausedDue || rec.dueDate;
+  return updateTodo(id, { paused: false, pausedUntil: null, pausedDue: null, dueDate: resumeDue({ ...rec, dueDate: base }, today) });
+}
+
+/** Modo vacaciones: pausa todas las tareas repetidas pendientes del grupo. Devuelve cuántas. */
+export async function pauseGroupRepeats(groupId, until, today = todayKey()) {
+  const list = (await todos(groupId)).filter((t) => !t.done && isRepeating(t.repeat) && !t.paused);
+  for (const t of list) await pauseTodo(t.id, until, today);
+  return list.length;
+}
+
+/** Fin de las vacaciones antes de tiempo: reanuda las pausadas con fecha. Devuelve cuántas. */
+export async function resumeGroupRepeats(groupId, today = todayKey()) {
+  const list = (await todos(groupId)).filter((t) => !t.done && t.pausedUntil && t.pausedUntil > today);
+  for (const t of list) await resumeTodo(t.id, today);
+  return list.length;
 }
 
 /* ------------------- Catálogo: categorías y tareas habituales ------------ */
@@ -273,7 +328,51 @@ export async function seedCatalog(groupId) {
     let ii = 0;
     for (const it of cat.items) await addItem({ groupId, name: it.name, icon: it.icon, categoryId: c.id, order: ii++ });
   }
+  const iconOf = new Map(DEFAULT_CATALOG.flatMap((c) => c.items).map((i) => [i.name, i.icon]));
+  let ri = 0;
+  for (const r of DEFAULT_ROUTINES) {
+    await addRoutine({ groupId, name: r.name, icon: r.icon, order: ri++, items: r.items.map((title) => ({ title, icon: iconOf.get(title) || 'sparkles' })) });
+  }
 }
+
+/* ------------------------- Limpieza del historial ------------------------ */
+/* Mismos plazos que Code.gs (las pruebas lo comprueban): lo hecho hace más de
+ * 90 días y lo borrado hace más de 60 se quita del móvil (en la hoja pasa a la
+ * pestaña "archivo"). También en los grupos sin hoja. */
+export const KEEP_DONE_DAYS = 90;
+export const KEEP_DELETED_DAYS = 60;
+const DAY_MS = 24 * 3600 * 1000;
+
+/** Quita físicamente lo antiguo. Como mucho una vez al día. Devuelve cuántos. */
+export async function purgeOld(now = Date.now(), { force = false } = {}) {
+  const last = (await getOne('meta', 'lastPurge'))?.value || 0;
+  if (!force && now - last < DAY_MS) return 0;
+  let removed = 0;
+  for (const store of DATA_STORES) {
+    for (const rec of await getAllRaw(store)) {
+      const old = rec.deleted
+        ? (rec.updatedAt || 0) < now - KEEP_DELETED_DAYS * DAY_MS
+        : store === 'todos' && rec.done && (rec.doneAt || rec.updatedAt || 0) < now - KEEP_DONE_DAYS * DAY_MS;
+      if (old) { await deleteRaw(store, rec.id); removed++; }
+    }
+  }
+  await putRaw('meta', { key: 'lastPurge', value: now });
+  return removed;
+}
+
+/* ------------------------------- Rutinas --------------------------------- */
+/* Conjuntos de tareas que se añaden de una vez («Limpieza del sábado»).
+ * items: [{title, icon}]. Se sincronizan como el resto del catálogo. */
+export async function routines(groupId) {
+  return (await getActive('routines')).filter((r) => r.groupId === groupId).sort(byOrder);
+}
+export async function addRoutine({ groupId, name, icon, items, order }) {
+  const rec = { id: uid(), groupId, name: name.trim(), icon: icon || 'sparkles', items: items || [], order: order ?? Date.now(), updatedAt: Date.now(), deleted: false };
+  await putRaw('routines', rec);
+  return rec;
+}
+export async function updateRoutine(id, patch) { return patchRecord('routines', id, patch); }
+export async function deleteRoutine(id) { return softDelete('routines', id); }
 
 async function patchRecord(store, id, patch) {
   const rec = await getOne(store, id);
@@ -307,9 +406,9 @@ export async function exportAll() {
   const data = {};
   for (const s of DATA_STORES) data[s] = await getAllRaw(s);
   const settings = await getSettings();
-  // No exportamos claves de sincronización ni temas de ntfy por seguridad;
-  // se recuperan con la invitación de cada grupo.
-  const groups = settings.groups.map((g) => Object.assign({}, g, { syncUrl: '', syncSecret: '', ntfyTopic: '' }));
+  // No exportamos las claves de sincronización por seguridad; se recuperan con
+  // la invitación de cada grupo. (Los temas de ntfy van en los miembros.)
+  const groups = settings.groups.map((g) => Object.assign({}, g, { syncUrl: '', syncSecret: '' }));
   return { app: 'tareas-hogar', version: 3, exportedAt: Date.now(), stores: data, settings: Object.assign({}, settings, { groups }) };
 }
 /** Importa una copia. Los registros de grupos que no existen en este móvil

@@ -20,10 +20,24 @@ cuentas. Los datos se comparten a través de **tu** Google Sheet.
   «Nueva» y mantén pulsada una para editarla o cambiarla de categoría. Las tareas nuevas que
   escribas se pueden guardar en una categoría. En los grupos compartidos el catálogo es común.
 - 📅 **Próximas:** con el botón **+** planificas tareas para otro día (eligiéndolas de tu
-  catálogo o escribiendo una nueva) y, si quieres, que se **repitan** (cada día, cada 2 o 3 semanas, cada mes, cada año o cada N días/semanas/meses), o
-  que le toquen a alguien en concreto. Las repeticiones previstas también se ven aquí.
+  catálogo o escribiendo una nueva), eliges a quién le toca y, si quieres, que se **repitan**:
+  cada día, cada 2 o 3 semanas, cada mes, cada año, cada N días/semanas/meses o en días concretos
+  («lunes y jueves», «entre semana», «sábados alternos»), contando desde la fecha planificada o
+  **desde el día en que se hace** («limpiar filtros cada 10 días»). Las repeticiones previstas
+  también se ven aquí. Las repetidas se pueden **pausar** (hasta una fecha o hasta reanudarlas) y
+  en **Grupo → Vacaciones** se pausan todas a la vez. Cualquier pendiente se puede **posponer**
+  (Mañana, +1 semana u otro día; en las repetidas solo esa vez) y, si quieres, las que se quedan
+  sin hacer pasan solas a hoy (Grupo → Tareas sin hacer).
+- 🧺 **Rutinas:** un toque en «Limpieza del sábado» (o las que crees) añade todas sus tareas para
+  hoy, sin duplicar las que ya estén pendientes. Mantén pulsada una rutina para editarla.
+- ✍️ **Escribe con naturalidad:** «Sacar el vidrio el viernes cada 2 semanas», «Regar las plantas
+  los lunes y jueves», «Pagar el alquiler el 1 de cada mes», «Comprar pan para Ana»… La app entiende
+  la fecha, la repetición y a quién le toca (lo muestra como chips; toca uno para descartarlo).
 - ✅ **Hechas:** historial y quién ha resuelto cuántas esta semana.
 - 🔔 **Avisos al móvil** con **ntfy** cuando alguien añade o resuelve una tarea.
+- 🩺 **Diagnóstico** (Ajustes): si algo no sincroniza o no avisa, muestra qué respondió Google o
+  ntfy y permite copiar un informe (sin URLs completas ni claves). Un punto rojo en el botón de
+  sincronizar indica que el último intento falló.
 - 🌙 Tema oscuro por defecto + claro. 💾 Datos en el móvil (IndexedDB, persistente). 📲 Offline.
 
 ## 🚀 Publicar en GitHub Pages
@@ -67,10 +81,11 @@ privado* o *Unirme con una invitación*.
 2. Menú **Extensiones → Apps Script**.
 3. Borra el contenido y pega el código de [`apps-script/Code.gs`](apps-script/Code.gs)
    (también puedes copiarlo desde la app: **Grupo → Cómo configurar Google Sheets**).
-4. **Autoriza el script (imprescindible):** elige la función `doGet` en el desplegable de arriba
+4. **Autoriza el script (imprescindible):** elige la función `instalarResumenDiario` en el desplegable de arriba
    y pulsa **Ejecutar** → *Revisar permisos* → tu cuenta → *Configuración avanzada* →
    *Ir a … (no seguro)* → **Permitir**. Sin este paso Google responde «Acceso denegado» (403) y
-   la app muestra un error de sincronización aunque el acceso sea «Cualquier usuario».
+   la app muestra un error de sincronización aunque el acceso sea «Cualquier usuario». (De paso
+   activa el resumen diario.)
 5. **Implementar → Nueva implementación → Aplicación web**:
    - *Ejecutar como*: **Yo**
    - *Quién tiene acceso*: **Cualquier usuario** (en inglés, *Anyone*)
@@ -84,23 +99,36 @@ Versión: *Nueva versión*); la URL no cambia.
 **Grupo → Clave secreta**. La invitación ya la incluye, así que tu pareja no tiene que teclearla.
 
 La app sincroniza al abrirla, al volver a ella, al recuperar la conexión, tras cada cambio y
-cada minuto mientras está abierta.
+cada minuto mientras está abierta. Solo envía y recibe lo que ha cambiado. Una vez al día, el
+script pasa a la pestaña **archivo** de la hoja lo hecho hace más de 90 días y lo borrado hace más
+de 60 (no se pierde, pero deja de sincronizarse).
+
+**Actualizar el script:** si en **Grupo** aparece «Tu script de Google es antiguo», pulsa *Cómo
+actualizarlo*: pegar el código nuevo, ejecutar `instalarResumenDiario` para autorizarlo y crear una
+**nueva versión** de la implementación (la URL no cambia).
+
+**Resumen diario:** en **Grupo → Avisos al móvil** activa *Resumen diario* y elige la hora. El
+propio script te envía cada día lo pendiente para hoy a tu tema de ntfy (si no hay nada, no llega).
+Necesita haber ejecutado una vez `instalarResumenDiario` en el editor de Apps Script.
 
 ## 🔔 Avisos en el móvil (ntfy)
 
-Se activan o desactivan por grupo con el interruptor **Grupo → Avisos al móvil → Enviar avisos**.
-Cada grupo tiene su **tema** de [ntfy](https://ntfy.sh) (p. ej. `tareas-hogar-k3j9x2m1qa`), que
-viaja en la invitación. En cada móvil:
+Cada persona tiene **su propio tema** de [ntfy](https://ntfy.sh) en cada grupo compartido, así
+**nadie recibe avisos de lo que hace él mismo**: cuando Juan añade o resuelve una tarea, le llega a
+Ana, y al revés. Si te asignan una tarea («¿A quién le toca?»), te llega «Juan te ha asignado
+«Sacar la basura» para mañana». En los grupos privados no hay avisos de este tipo. En cada móvil:
 
 1. Instala **ntfy** ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) ·
    [iPhone](https://apps.apple.com/app/ntfy/id1625396347)).
-2. Pulsa **+** y suscríbete al tema que aparece en **Grupo → Avisos al móvil** (si lo permite,
-   ponle como nombre visible el del grupo).
-3. Pulsa **Probar**.
+2. En **Grupo → Avisos al móvil** activa **Recibir avisos en este móvil** y pulsa **Suscribirme en
+   la app ntfy** (en Android se suscribe sola; en iPhone, pulsa **+** en ntfy y escribe tu tema,
+   que está en «Tu tema y servidor»).
+3. Pulsa **Probar**: el aviso de prueba va a tu propio tema.
 
-> Los temas de ntfy no admiten espacios: «Tareas Hogar» es el título de los avisos y el tema
-> real es el identificador aleatorio. En ntfy.sh **quien conozca el tema puede leer los
-> avisos**; si quieres control total, ntfy se puede instalar en tu propio servidor.
+Debajo verás si los demás miembros reciben avisos.
+
+> En ntfy.sh **quien conozca un tema puede leer sus avisos**: los temas son aleatorios y no hay que
+> publicarlos. Si quieres control total, ntfy se puede instalar en tu propio servidor.
 
 Sin conexión, el aviso se guarda y se envía al recuperar la red (máximo 24 h).
 
@@ -112,6 +140,9 @@ Necesita servirse por HTTP (los módulos y el Service Worker no funcionan con `f
 python3 -m http.server 8765
 # abre http://localhost:8765
 ```
+
+Pruebas (Node 20+, sin dependencias): `npm test` (lógica y coherencia) y `npm run smoke`
+(recorre la app en Chrome headless con un simulador de Google Sheets).
 
 ## 🗂️ Versión y cambios
 

@@ -1,0 +1,11 @@
+{
+  "name": "tareas",
+  "private": true,
+  "description": "PWA Tareas. Sin dependencias ni build: este archivo solo existe para las pruebas (ES modules en Node).",
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-reporter=spec tools/test.mjs",
+    "smoke": "node --experimental-websocket tools/smoke.mjs",
+    "changelog": "node tools/gen_changelog.mjs"
+  }
+}

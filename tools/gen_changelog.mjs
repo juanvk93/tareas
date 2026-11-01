@@ -1,11 +1,7 @@
 // Genera CHANGELOG.md a partir de js/changelog.js (fuente única).
 // Uso (desde la raíz del proyecto): node tools/gen_changelog.mjs
-import { readFile, writeFile } from 'node:fs/promises';
-
-// changelog.js es un ES module con extensión .js: lo cargamos como data: URL
-// para no depender de "type": "module" en un package.json que no existe.
-const src = await readFile(new URL('../js/changelog.js', import.meta.url), 'utf8');
-const { APP_VERSION, CHANGELOG } = await import('data:text/javascript,' + encodeURIComponent(src));
+import { writeFile } from 'node:fs/promises';
+import { APP_VERSION, CHANGELOG } from '../js/changelog.js'; // package.json: "type": "module"
 
 const LABEL = { add: 'Añadido', chg: 'Cambiado', fix: 'Corregido' };
 let md = `# Registro de cambios\n\nTodos los cambios relevantes de **Tareas**. Versión actual: **${APP_VERSION}**.\n\n` +

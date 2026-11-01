@@ -67,6 +67,11 @@ export const DEFAULT_CATALOG = [
   }
 ];
 
+/* Rutinas iniciales: un toque en Hoy añade todas sus tareas (nombres del catálogo). */
+export const DEFAULT_ROUTINES = [
+  { name: 'Limpieza del sábado', icon: 'sparkles', items: ['Pasar la aspiradora', 'Fregar el suelo', 'Limpiar el baño', 'Quitar el polvo', 'Cambiar las sábanas'] }
+];
+
 const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 export { norm as normalizeTitle };
 

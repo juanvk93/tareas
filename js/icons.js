@@ -45,6 +45,8 @@ const PATHS = {
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
   note: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+  pause: '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
+  play: '<path d="M7 4.5v15l12-7.5z"/>',
   lock: '<rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
   key: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.8-9.8M17 6l3 3M14.5 8.5l2 2"/>',
 
@@ -76,7 +78,7 @@ const PATHS = {
 /** Iconos que se ofrecen al crear una tarea (orden del selector). */
 export const TASK_ICONS = [
   'sparkles', 'dishes', 'broom', 'spray', 'toilet', 'bath', 'trash', 'basket', 'washer', 'shirt',
-  'iron', 'cooking', 'cart', 'paw', 'plant', 'window', 'bed', 'bucket', 'droplet', 'car', 'pill', 'box'
+  'iron', 'cooking', 'cart', 'paw', 'plant', 'window', 'bed', 'bucket', 'droplet', 'car', 'pill', 'box', 'calendar'
 ];
 
 export function icon(name, { size, cls = '' } = {}) {

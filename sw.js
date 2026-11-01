@@ -6,7 +6,7 @@
  * la actualización de la caché en los dispositivos. Debe coincidir con la
  * versión declarada en js/changelog.js.
  */
-const CACHE_VERSION = 'v2.5.0';
+const CACHE_VERSION = 'v3.2.0';
 const CACHE_NAME = `tareas-hogar-${CACHE_VERSION}`;
 
 const APP_SHELL = [
@@ -15,6 +15,27 @@ const APP_SHELL = [
   './manifest.webmanifest',
   './css/styles.css',
   './js/app.js',
+  './js/state.js',
+  './js/ui.js',
+  './js/nav.js',
+  './js/actions.js',
+  './js/sync-ui.js',
+  './js/groups.js',
+  './js/views/parts.js',
+  './js/views/onboarding.js',
+  './js/views/hoy.js',
+  './js/views/proximas.js',
+  './js/views/hechas.js',
+  './js/views/grupo.js',
+  './js/views/ajustes.js',
+  './js/modals/todo.js',
+  './js/modals/catalog.js',
+  './js/modals/guides.js',
+  './js/modals/news.js',
+  './js/modals/diag.js',
+  './js/modals/routine.js',
+  './js/diag.js',
+  './js/update.js',
   './js/db.js',
   './js/sync.js',
   './js/changelog.js',
@@ -22,6 +43,8 @@ const APP_SHELL = [
   './js/notify.js',
   './js/dates.js',
   './js/catalog.js',
+  './js/parse.js',
+  './apps-script/Code.gs',
   './icons/icon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',
