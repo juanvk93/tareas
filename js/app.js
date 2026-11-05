@@ -16,6 +16,7 @@ import { renderGrupo } from './views/grupo.js';
 import { renderAjustes } from './views/ajustes.js';
 import { installGlobalHandlers } from './diag.js';
 import { registerServiceWorker } from './update.js';
+import { installPullToRefresh } from './pull.js';
 
 registerViews({
   nuevo: renderOnboarding,
@@ -50,6 +51,7 @@ async function init() {
   $$('.tabbar__item').forEach((b) => b.onclick = () => setView(b.dataset.view));
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
   window.addEventListener('hashchange', checkInviteLink);
+  installPullToRefresh();
 
   // Historial antiguo fuera (una vez al día) y sincronización de todos los grupos.
   db.purgeOld().catch((e) => console.warn('Limpieza:', e));
@@ -66,7 +68,11 @@ async function init() {
   if (!window.__tareasBooted || $('#view .opening')) await setView('hoy');
   window.__tareasBooted = true; // Ver el arranque de seguridad de index.html.
   await checkInviteLink();
-  if (!$('.modal-overlay')) await showWhatsNewIfUpdated();
+  // Acceso directo «Añadir tarea» del icono (manifest → ?accion=nueva): el buscador, listo para escribir.
+  if (new URLSearchParams(location.search).get('accion') === 'nueva') {
+    history.replaceState(null, '', location.pathname + location.hash); // Que recargar no lo repita.
+    if (G() && !$('.modal-overlay')) { if (state.view !== 'hoy') await setView('hoy'); window.scrollTo(0, 0); $('#search-input')?.focus(); }
+  } else if (!$('.modal-overlay')) await showWhatsNewIfUpdated();
 
   // Service Worker (+ aviso «Versión X disponible · Recargar»).
   await registerServiceWorker();

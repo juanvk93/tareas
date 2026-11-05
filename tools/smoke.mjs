@@ -778,6 +778,214 @@ await run('Avisos: cada persona su tema y nadie recibe los suyos', async () => {
   if (published[0].topic !== topicA) throw new Error('la prueba debería ir a tu tema');
 });
 
+await run('Avisos en iPhone: pasos y «Copiar mi tema» en vez del enlace ntfy://', async () => {
+  const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  await B.send('Emulation.setUserAgentOverride', { userAgent: UA, platform: 'iPhone' });
+  try {
+    await B.reload();
+    await B.tab('grupo');
+    await B.waitFor(`!!document.querySelector('#btn-topic-copy')`, 'el botón «Copiar mi tema»');
+    if (await B.eval(`!!document.querySelector('#btn-subscribe')`)) throw new Error('en iPhone no debería salir el enlace ntfy://');
+    const topic = await B.eval(`(async () => { const db = await import('./js/db.js'); const s = await import('./js/state.js'); return (await db.getOne('members', s.G().currentMemberId)).ntfyTopic; })()`);
+    if (await B.eval(`document.querySelector('#ios-topic').value`) !== topic) throw new Error('el tema que se copia no es el de Ana');
+    await B.click('#btn-topic-copy');
+    await B.waitFor(`[...document.querySelectorAll('.toast')].some((t) => /Tema copiado|Cópialo a mano/.test(t.textContent))`, 'el aviso de copiar');
+    if (process.env.SMOKE_SHOTS) { await B.eval(`document.querySelectorAll('.toast').forEach((t) => t.remove()); document.querySelector('.ios-subscribe').scrollIntoView({ block: 'center' }); true`); await B.shot('avisos-iphone.png'); }
+    await B.click('#btn-notify-guide');
+    await B.waitFor(B.textIn('.modal', 'pega tu tema') + ` && !${B.textIn('.modal', 'Suscribirme en la app ntfy')}`, 'la guía con los pasos del iPhone');
+    await B.click('[data-close]');
+  } finally {
+    await B.send('Emulation.setUserAgentOverride', { userAgent: '' });
+    await B.reload();
+  }
+});
+
+await run('Filtro «Lo mío» en Hoy y Próximas', async () => {
+  // Juan (A) tiene una suya, una de Ana y una sin asignar para hoy, y una de Ana para mañana.
+  await A.eval(`(async () => {
+    const db = await import('./js/db.js'); const { G } = await import('./js/state.js'); const d = await import('./js/dates.js');
+    const ms = await db.members(G().id); const ana = ms.find((m) => m.name === 'Ana').id;
+    const add = (title, assignee, dueDate = d.todayKey()) => db.addTodo({ groupId: G().id, title, dueDate, assignee, createdBy: G().currentMemberId });
+    await add('Mía de Juan', G().currentMemberId); await add('Cosa de Ana', ana); await add('De nadie', null);
+    await add('Mañana de Ana', ana, d.addDays(d.todayKey(), 1));
+    return true;
+  })()`);
+  await A.tab('proximas'); await A.tab('hoy');
+  for (const t of ['Mía de Juan', 'Cosa de Ana', 'De nadie']) await A.waitFor(A.textIn('[data-tile-todo]', t), `«${t}» con Todas`);
+  await A.click('[data-mine="1"]');
+  await A.waitFor(`document.querySelector('[data-mine="1"]')?.classList.contains('is-active')`, '«Lo mío» activo');
+  if (await A.eval(A.textIn('.tiles--pending [data-tile-todo]', 'Cosa de Ana'))) throw new Error('«Lo mío» enseña una tarea de Ana');
+  for (const t of ['Mía de Juan', 'De nadie']) if (!await A.eval(A.textIn('.tiles--pending [data-tile-todo]', t))) throw new Error(`«Lo mío» oculta «${t}»`);
+  const hiddenTxt = await A.eval(`document.querySelector('.mine-filter__hidden')?.textContent || ''`);
+  const expected = await A.eval(`(async () => {
+    const db = await import('./js/db.js'); const { G } = await import('./js/state.js'); const d = await import('./js/dates.js');
+    return (await db.todos(G().id)).filter((t) => !t.done && !t.paused && t.dueDate <= d.todayKey() && t.assignee && t.assignee !== G().currentMemberId).length;
+  })()`);
+  if (hiddenTxt !== `${expected} de otros`) throw new Error(`dice «${hiddenTxt}» y deberían ser ${expected} de otros`);
+  await A.tab('proximas');
+  if (await A.eval(A.textIn('#view', 'Mañana de Ana'))) throw new Error('Próximas enseña la de Ana con «Lo mío»');
+  await A.click('[data-mine="0"]');
+  await A.waitFor(A.textIn('#view', 'Mañana de Ana'), 'la de Ana en Próximas con Todas');
+  // Se recuerda por grupo y en el privado no sale.
+  await A.click('[data-mine="1"]');
+  await A.waitFor(`!!document.querySelector('[data-mine="1"].is-active')`, '«Lo mío» activo en Próximas');
+  await A.switchGroup('Mis cosas');
+  await A.tab('hoy');
+  if (await A.eval(`!!document.querySelector('.mine-filter')`)) throw new Error('el grupo privado no debería tener «Lo mío»');
+  await A.switchGroup('Casa');
+  await A.waitFor(`!!document.querySelector('[data-mine="1"].is-active')`, '«Lo mío» recordado en Casa');
+  if (process.env.SMOKE_SHOTS) await A.shot('lo-mio.png');
+  await A.click('[data-mine="0"]');
+  await A.eval(`(async () => {
+    const db = await import('./js/db.js'); const { G } = await import('./js/state.js');
+    for (const t of await db.todos(G().id)) if (['Mía de Juan', 'Cosa de Ana', 'De nadie', 'Mañana de Ana'].includes(t.title)) await db.deleteTodo(t.id);
+    return true;
+  })()`);
+});
+
+await run('«Recuérdaselo» avisa solo a quien le toca (o a todos) y no insiste', async () => {
+  const ids = await A.eval(`(async () => {
+    const db = await import('./js/db.js'); const { G } = await import('./js/state.js'); const d = await import('./js/dates.js');
+    const ms = await db.members(G().id); const ana = ms.find((m) => m.name === 'Ana');
+    const add = (title, assignee) => db.addTodo({ groupId: G().id, title, dueDate: d.addDays(d.todayKey(), -1), assignee, createdBy: G().currentMemberId });
+    await add('Fregar el balcón', ana.id); await add('Comprar pilas', null); await add('Pagar el gas', G().currentMemberId);
+    return { topicB: ana.ntfyTopic };
+  })()`);
+  const openEdit = async (title) => {
+    await A.tab('proximas'); await A.tab('hoy');
+    await A.eval(`(() => { const el = [...document.querySelectorAll('[data-tile-todo]')].find((e) => e.textContent.includes(${q(title)})); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); return true; })()`);
+    await A.waitFor(`document.querySelector('#td-title')?.value === ${q(title)}`, `el formulario de «${title}»`);
+  };
+  const lastToast = () => A.eval(`[...document.querySelectorAll('.toast')].pop()?.textContent || ''`);
+  // Asignada a Ana: solo a ella, con la fecha.
+  await openEdit('Fregar el balcón');
+  if (!await A.eval(A.textIn('#td-remind', 'Recuérdaselo a Ana'))) throw new Error('falta «Recuérdaselo a Ana»');
+  if (process.env.SMOKE_SHOTS) { await A.eval(`document.querySelector('#td-remind').scrollIntoView({ block: 'center' }), true`); await A.shot('recuerdaselo.png'); }
+  published.length = 0;
+  await A.click('#td-remind');
+  await until(() => published.length >= 1, 'el recordatorio');
+  if (published.length !== 1 || published[0].topic !== ids.topicB || !published[0].message.includes('te recuerda «Fregar el balcón» de ayer') || published[0].priority !== 4)
+    throw new Error(`recordatorio: ${JSON.stringify(published)}`);
+  await A.waitFor(A.textIn('.toast', 'Recordatorio enviado a Ana'), 'el aviso «Recordatorio enviado»');
+  // Otra vez enseguida: no se envía.
+  await openEdit('Fregar el balcón');
+  await A.click('#td-remind');
+  await A.waitFor(A.textIn('.toast', 'podrás repetirlo en 10 min'), 'que no deje insistir');
+  await A.eval('new Promise((r) => setTimeout(r, 300))');
+  if (published.length !== 1) throw new Error('se ha enviado un segundo recordatorio');
+  // Sin asignar: a todos los demás (aquí, Ana). Tuya: no hay botón.
+  await openEdit('Comprar pilas');
+  if (!await A.eval(A.textIn('#td-remind', 'Recordárselo a todos'))) throw new Error('falta «Recordárselo a todos»');
+  published.length = 0;
+  await A.click('#td-remind');
+  await until(() => published.length >= 1, 'el recordatorio a todos');
+  if (published.length !== 1 || published[0].topic !== ids.topicB) throw new Error(`a todos: ${JSON.stringify(published)}`);
+  await openEdit('Pagar el gas');
+  if (await A.eval(`!!document.querySelector('#td-remind')`)) throw new Error('una tarea tuya no debería tener «Recuérdaselo»');
+  await A.click('.modal [data-close], .modal__close').catch(() => {});
+  await A.eval(`(async () => {
+    const ui = await import('./js/ui.js'); ui.closeModal();
+    const db = await import('./js/db.js'); const { G } = await import('./js/state.js');
+    for (const t of await db.todos(G().id)) if (['Fregar el balcón', 'Comprar pilas', 'Pagar el gas'].includes(t.title)) await db.deleteTodo(t.id);
+    return true;
+  })()`);
+});
+
+await run('Tirar hacia abajo sincroniza y resolver vibra', async () => {
+  await A.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+  const drag = async (x, y0, y1, shot = '') => {
+    await A.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: y0 }] });
+    for (let i = 1; i <= 6; i++) await A.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y0 + ((y1 - y0) * i) / 6 }] });
+    if (shot && process.env.SMOKE_SHOTS) await A.shot(shot);
+    await A.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  };
+  try {
+    await A.tab('proximas'); await A.tab('hoy');
+    await A.eval('window.scrollTo(0, 0), true');
+    await A.eval('new Promise((r) => setTimeout(r, 300))');
+    // Poco recorrido: no sincroniza.
+    gasLog.length = 0;
+    await drag(200, 330, 400);
+    await A.eval('new Promise((r) => setTimeout(r, 400))');
+    if (gasLog.length) throw new Error('un tirón corto no debería sincronizar');
+    // Tirón largo (empezando encima de una casilla): sincroniza y no abre el formulario.
+    await A.eval(`document.querySelectorAll('.toast').forEach((t) => t.remove()), true`);
+    await drag(200, 330, 520, 'tirar-para-sincronizar.png');
+    await A.waitFor(A.textIn('.toast', 'Sincronizado'), 'que tirar hacia abajo sincronice');
+    if (!gasLog.some((l) => l.action === 'sync')) throw new Error('no ha llegado la petición a la hoja');
+    if (await A.eval(`!!document.querySelector('.modal-overlay')`)) throw new Error('tirar desde una casilla ha abierto el formulario');
+    await A.waitFor(`!document.querySelector('.ptr.is-visible, .ptr.is-spinning')`, 'que se oculte el indicador');
+  } finally {
+    await A.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+  }
+  // Resolver vibra (navigator.vibrate simulado para contar).
+  await A.eval(`(async () => {
+    window.__vib = []; navigator.vibrate = (p) => (window.__vib.push(p), true);
+    const db = await import('./js/db.js'); const { G } = await import('./js/state.js'); const d = await import('./js/dates.js');
+    await db.addTodo({ groupId: G().id, title: 'Vibrar al resolver', dueDate: d.todayKey(), createdBy: G().currentMemberId });
+    return true;
+  })()`);
+  await A.tab('proximas'); await A.tab('hoy');
+  await A.click('[data-tile-todo]', 'Vibrar al resolver');
+  await A.waitFor(`window.__vib.includes(30)`, 'la vibración al resolver');
+});
+
+await run('Deslizar: casilla a mañana, fila resuelta y vuelta a pendiente', async () => {
+  const ids = await A.eval(`(async () => {
+    const db = await import('./js/db.js'); const { G } = await import('./js/state.js'); const d = await import('./js/dates.js');
+    const add = (title, dueDate) => db.addTodo({ groupId: G().id, title, dueDate, createdBy: G().currentMemberId });
+    const a = await add('Deslizar casilla', d.todayKey()); const b = await add('Deslizar fila', d.addDays(d.todayKey(), 3));
+    return { tile: a.id, row: b.id, tomorrow: d.addDays(d.todayKey(), 1) };
+  })()`);
+  const due = (id) => A.eval(`(async () => { const db = await import('./js/db.js'); const t = await db.getOne('todos', ${q(id)}); return t.done ? 'hecha' : t.dueDate; })()`);
+  const center = (sel) => A.eval(`(() => { const el = document.querySelector(${q(sel)}); el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+  const swipe = async (sel, dx, dy = 0, shot = '') => {
+    const { x, y } = await center(sel);
+    await A.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    for (let i = 1; i <= 8; i++) await A.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + (dx * i) / 8, y: y + (dy * i) / 8 }] });
+    if (shot && process.env.SMOKE_SHOTS) await A.shot(shot);
+    await A.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await A.eval('new Promise((r) => setTimeout(r, 500))');
+  };
+  await A.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+  try {
+    await A.tab('proximas'); await A.tab('hoy');
+    const tileSel = `[data-tile-todo="${ids.tile}"]`;
+    // Poco recorrido o en vertical: nada.
+    await swipe(tileSel, -25);
+    await swipe(tileSel, -10, 120);
+    if (await due(ids.tile) === ids.tomorrow) throw new Error('un gesto corto o vertical ha pospuesto la casilla');
+    if (await A.eval(`!!document.querySelector('.modal-overlay')`)) throw new Error('el gesto ha abierto el formulario');
+    // Casilla a la izquierda: a mañana (y no se resuelve).
+    await swipe(tileSel, -160, 0, 'deslizar-casilla.png');
+    await A.waitFor(A.textIn('.toast', 'Pospuesta a mañana'), 'el aviso de pospuesta');
+    if (await due(ids.tile) !== ids.tomorrow) throw new Error(`la casilla debería ir a mañana: ${await due(ids.tile)}`);
+    // Fila de Próximas a la derecha: resuelta; en Hechas, a la derecha otra vez: pendiente.
+    await A.tab('proximas');
+    await swipe(`[data-swipe="${ids.row}"]`, 220, 0, 'deslizar-fila.png');
+    await A.waitFor(`(async () => { const db = await import('./js/db.js'); return (await db.getOne('todos', ${q(ids.row)})).done; })()`, 'que la fila quede resuelta');
+    await A.tab('hechas');
+    await swipe(`[data-swipe="${ids.row}"]`, 220);
+    await A.waitFor(`(async () => { const db = await import('./js/db.js'); return !(await db.getOne('todos', ${q(ids.row)})).done; })()`, 'que vuelva a pendiente');
+    if (await A.eval(`!!document.querySelector('.swipe-bg')`)) throw new Error('queda el fondo del gesto');
+  } finally {
+    await A.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+  }
+  await A.eval(`(async () => { const db = await import('./js/db.js'); await db.deleteTodo(${q(ids.tile)}); await db.deleteTodo(${q(ids.row)}); return true; })()`);
+});
+
+await run('Acceso directo «Añadir tarea»: abre Hoy con el buscador listo', async () => {
+  await A.tab('grupo');
+  await A.goto(`${BASE}index.html?accion=nueva`);
+  await A.waitFor(`document.activeElement?.id === 'search-input'`, 'el buscador con el foco');
+  if (await A.eval(`location.search`)) throw new Error('el parámetro ?accion=nueva debería quitarse');
+  if (await A.eval(`document.querySelector('.tabbar__item.is-active')?.dataset.view`) !== 'hoy') throw new Error('debería abrir Hoy');
+  // El manifiesto lo anuncia (Chrome lo lee del enlace del <head>).
+  const m = await A.eval(`fetch('./manifest.webmanifest').then((r) => r.json())`);
+  if (!m.shortcuts?.some((sc) => sc.url === './index.html?accion=nueva')) throw new Error('falta el acceso directo en el manifiesto');
+  await A.eval('document.activeElement.blur(), true');
+});
+
 await run('Sincronización incremental: sin cambios no se envía ni se recibe nada', async () => {
   await A.tab('hoy');
   await A.click('#btn-sync');

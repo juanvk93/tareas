@@ -2,9 +2,9 @@
 import * as db from '../db.js';
 import { icon } from '../icons.js';
 import { parseYmd, todayKey, addDays, nextDue, currentDue, isRepeating, countsFromDone, seriesBase } from '../dates.js';
-import { G } from '../state.js';
+import { G, mineFilter } from '../state.js';
 import { $, view, esc, fmtLongDate, fmtShortDay, emptyCard, fab } from '../ui.js';
-import { todoList, wireTodoRows } from './parts.js';
+import { todoList, wireTodoRows, mineChips, wireMineChips } from './parts.js';
 import { openTodoModal } from '../modals/todo.js';
 
 export const PROJECT_DAYS = 28;   // Horizonte de las repeticiones previstas.
@@ -37,12 +37,14 @@ export async function renderProximas() {
   const [members, all] = await Promise.all([db.members(G().id), db.todos(G().id)]);
   const memById = new Map(members.map((m) => [m.id, m]));
   const today = todayKey();
+  const mine = mineFilter(members);
   const open = all.filter((t) => !t.done && !t.paused);
-  const paused = all.filter((t) => !t.done && t.paused).sort((a, b) => a.title.localeCompare(b.title));
-  const upcoming = [...open.filter((t) => t.dueDate > today), ...projectRepeats(open, today)]
+  const paused = all.filter((t) => !t.done && t.paused && mine.keep(t)).sort((a, b) => a.title.localeCompare(b.title));
+  const future = open.filter((t) => t.dueDate > today);
+  const upcoming = [...future, ...projectRepeats(open, today)].filter(mine.keep)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || (a.projected ? 1 : 0) - (b.projected ? 1 : 0) || a.createdAt - b.createdAt);
 
-  let html = '';
+  let html = mineChips(mine, future.length - future.filter(mine.keep).length);
   if (!upcoming.length && !paused.length) {
     html += emptyCard('calendar', 'No hay nada planificado.<div class="muted text-sm" style="margin-top:6px">Pulsa <b>+</b> para programar una tarea para otro día.</div>');
   } else {
@@ -62,5 +64,6 @@ export async function renderProximas() {
   html += fab('Planificar tarea');
   view().innerHTML = html;
   wireTodoRows(all);
+  wireMineChips();
   $('#fab-add').onclick = () => openTodoModal({ dueDate: addDays(today, 1), when: 'date' });
 }

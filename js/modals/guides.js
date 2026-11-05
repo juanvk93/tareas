@@ -2,7 +2,7 @@
 import { icon } from '../icons.js';
 import { isValidTopic, topicUrl } from '../notify.js';
 import { G } from '../state.js';
-import { $, esc, toast, openModal } from '../ui.js';
+import { $, esc, toast, openModal, isIOS, copyText } from '../ui.js';
 
 /* ---------------------- Guía de Google Sheets --------------------------- */
 const AUTHORIZE = `elige la función <code>instalarResumenDiario</code> en el desplegable de arriba y pulsa <b>Ejecutar</b> → Revisar permisos → tu cuenta → Configuración avanzada → Ir a … (no seguro) → <b>Permitir</b>`;
@@ -55,7 +55,9 @@ export function openNotifyGuideModal({ ntfyServer, ntfyTopic }) {
       <li>Instala la app gratuita <b>ntfy</b>:
         <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener">Android</a> ·
         <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener">iPhone</a>.</li>
-      <li>Vuelve aquí y pulsa <b>Suscribirme en la app ntfy</b>. Si no se abre (o usas iPhone), en ntfy pulsa <b>+</b> (Suscribirse a un tema) y escribe tu tema:</li>
+      ${isIOS()
+        ? '<li>Abre ntfy, <b>permite las notificaciones</b>, pulsa <b>+</b> (Suscribirse a un tema) y pega tu tema:</li>'
+        : '<li>Vuelve aquí y pulsa <b>Suscribirme en la app ntfy</b>. Si no se abre, en ntfy pulsa <b>+</b> (Suscribirse a un tema) y escribe tu tema:</li>'}
     </ol>
     ${topic ? `<div class="input-group" style="margin:4px 0 12px">
         <input class="input" value="${esc(topic)}" readonly id="ng-topic">
@@ -73,10 +75,7 @@ export function openNotifyGuideModal({ ntfyServer, ntfyTopic }) {
   `, {
     onMount(modal) {
       const copy = $('#ng-copy', modal);
-      if (copy) copy.onclick = async () => {
-        try { await navigator.clipboard.writeText(topic); toast('Tema copiado', 'ok'); }
-        catch { $('#ng-topic', modal).select(); toast('Copia manualmente', 'err'); }
-      };
+      if (copy) copy.onclick = () => copyText(topic, 'Tema copiado', $('#ng-topic', modal));
     }
   });
 }

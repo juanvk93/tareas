@@ -1,9 +1,9 @@
 /* Acciones sobre tareas que comparten varias vistas (resolver, deshacer) y avisos por ntfy. */
 import * as db from './db.js';
-import { notify, recipientsOf, splitAssignee } from './notify.js';
-import { todayKey, isRepeating, todoRepeatLabel } from './dates.js';
+import { notify, recipientsOf, splitAssignee, reminderTargets } from './notify.js';
+import { todayKey, addDays, isRepeating, todoRepeatLabel } from './dates.js';
 import { normalizeTitle } from './catalog.js';
-import { G } from './state.js';
+import { G, dueOf } from './state.js';
 import { dueLabel, dueForText, toast } from './ui.js';
 import { scheduleAutoSync } from './sync-ui.js';
 import { refreshKeepingScroll } from './nav.js';
@@ -57,6 +57,36 @@ export async function notifyResolved(todo) {
   notifyOthers({ message: `${who} ha resuelto «${todo.title}»`, tags: ['white_check_mark'] });
 }
 
+/* «Recuérdaselo»: como mucho uno cada REMIND_GAP_MS por tarea, para no insistir sin querer. */
+export const REMIND_GAP_MS = 10 * 60 * 1000;
+const lastReminder = new Map(); // todoId → cuándo se recordó (en esta sesión de la app)
+
+/** A quién se puede recordar una tarea y a quién no (porque no recibe avisos). */
+export async function reminderInfo(todo) {
+  const g = G();
+  const members = await db.members(g.id);
+  const targets = reminderTargets(recipientsOf(g, members, g.currentMemberId), todo.assignee, g.currentMemberId);
+  const assignee = todo.assignee && todo.assignee !== g.currentMemberId ? members.find((m) => m.id === todo.assignee) : null;
+  return { targets, assignee };
+}
+
+export async function remindTask(todo) {
+  const g = G();
+  const last = lastReminder.get(todo.id);
+  if (last && Date.now() - last < REMIND_GAP_MS) {
+    const left = Math.ceil((REMIND_GAP_MS - (Date.now() - last)) / 60000);
+    toast(`Ya lo has recordado: podrás repetirlo en ${left} min`, 'err');
+    return;
+  }
+  const { targets } = await reminderInfo(todo);
+  if (!targets.length) return;
+  const who = (await memberName(g.currentMemberId)) || 'Alguien';
+  const { queued } = await notify(g, targets, { message: `${who} te recuerda «${todo.title}» ${dueForText(dueOf(todo))}`, tags: ['bell'], priority: 4 });
+  lastReminder.set(todo.id, Date.now());
+  const to = targets.length === 1 ? targets[0].name : 'todos';
+  toast(queued ? `Sin conexión: el recordatorio a ${to} se enviará al volver` : `Recordatorio enviado a ${to}`, 'ok');
+}
+
 /**
  * Lanza una rutina: añade para hoy las tareas que aún no estén pendientes y
  * manda un solo aviso («Juan ha añadido «Limpieza del sábado» (5 tareas)»).
@@ -80,6 +110,12 @@ export async function runRoutine(routine) {
     action: { label: 'Deshacer', fn: async () => { for (const t of created) await db.deleteTodo(t.id); scheduleAutoSync(); await refreshKeepingScroll(); } }
   });
   await refreshKeepingScroll();
+}
+
+/** Un día más (desde su fecha si es futura; si no, desde hoy): lo que hace deslizar a la izquierda. */
+export function nextDayFor(t) {
+  const today = todayKey(), due = dueOf(t);
+  return addDays(due > today ? due : today, 1);
 }
 
 /** Pospone una tarea a `newDate` (solo esta vez si se repite). */
@@ -114,6 +150,7 @@ export async function resumeTask(id, quiet = false) {
 export async function completeTodo(id) {
   const { todo, next } = await db.completeTodo(id, G().currentMemberId);
   if (!todo) return;
+  navigator.vibrate?.(30); // Android; el iPhone no deja vibrar a las apps web.
   scheduleAutoSync();
   notifyResolved(todo);
   toast(next ? `Resuelta · vuelve ${dueLabel(next.dueDate).toLowerCase()}` : 'Resuelta', 'ok', {

@@ -1,8 +1,45 @@
 # Registro de cambios
 
-Todos los cambios relevantes de **Tareas**. Versión actual: **3.2.1**.
+Todos los cambios relevantes de **Tareas**. Versión actual: **3.4.2**.
 
 > Archivo generado desde `js/changelog.js` con `node tools/gen_changelog.mjs`. No editar a mano.
+
+## [3.4.2] — 2026-11-05
+
+### Añadido
+
+- Acceso directo «Añadir tarea»: en Android, mantén pulsado el icono de Tareas y elige «Añadir tarea» para abrir la app lista para escribir (puede tardar hasta un día en aparecer; si no sale, desinstala y vuelve a instalar la app).
+
+## [3.4.1] — 2026-11-05
+
+### Añadido
+
+- Deslizar: en Hoy, desliza una casilla a la izquierda para pasarla a mañana. En las listas (Próximas, Hechas, resueltas hoy), a la derecha la resuelves (o la devuelves a pendiente) y a la izquierda la pasas al día siguiente. Siempre con Deshacer.
+
+## [3.4.0] — 2026-11-05
+
+### Añadido
+
+- Tira hacia abajo desde arriba de cualquier pestaña para sincronizar con Google Sheets.
+- El móvil vibra un momento al resolver una tarea (en Android; el iPhone no lo permite a las apps web).
+
+## [3.3.1] — 2026-11-05
+
+### Añadido
+
+- «Recuérdaselo»: en el formulario de una tarea pendiente (mantén pulsada la casilla), un botón manda un aviso a quien le toca, por ejemplo «Juan te recuerda «Sacar la basura» de ayer». Si no es de nadie, se recuerda a todos. Como mucho uno cada 10 minutos por tarea.
+
+## [3.3.0] — 2026-11-05
+
+### Añadido
+
+- Filtro «Lo mío» en Hoy y Próximas: enseña solo las tareas que te tocan a ti o que no son de nadie, y te dice cuántas quedan de otras personas. Se recuerda en cada grupo.
+
+## [3.2.2] — 2026-11-05
+
+### Cambiado
+
+- Avisos en iPhone: Grupo → Avisos al móvil explica cómo suscribirse en la app ntfy y tiene un botón «Copiar mi tema» (el botón «Suscribirme» solo funciona en Android).
 
 ## [3.2.1] — 2026-11-05
 

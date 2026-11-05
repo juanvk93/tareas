@@ -4,7 +4,7 @@ import { testConnection, checkSyncUrl, REQUIRED_SCRIPT_VERSION } from '../sync.j
 import { icon } from '../icons.js';
 import { testNotify, isValidTopic, subscribeLink, appUrl } from '../notify.js';
 import { state, G } from '../state.js';
-import { $, $$, view, esc, fmtTime, relativeDay, fmtShortDay, toast, confirmDialog, avatar, promptText } from '../ui.js';
+import { $, $$, view, esc, isIOS, copyText, fmtTime, relativeDay, fmtShortDay, toast, confirmDialog, avatar, promptText } from '../ui.js';
 import { scheduleAutoSync, doSync } from '../sync-ui.js';
 import { refresh } from '../nav.js';
 import { shareInvite, leaveGroup, memberTopic } from '../groups.js';
@@ -131,8 +131,9 @@ export async function renderGrupo() {
       </div>` : ''}
       ${myNotify || mySummary ? `
       <div class="notify-config">
+        ${isIOS() ? iosSubscribe(me.ntfyTopic, myServer) : `
         <a class="btn btn--primary btn--block" id="btn-subscribe" href="${esc(subscribeLink(myServer, me.ntfyTopic, g.name))}">${icon('bell')}Suscribirme en la app ntfy</a>
-        <p class="help">Abre la app ntfy (Android) y se suscribe a tu tema. Si no la tienes, instálala y vuelve a pulsar.</p>
+        <p class="help">Abre la app ntfy (Android) y se suscribe a tu tema. Si no la tienes, instálala y vuelve a pulsar.</p>`}
         <div class="row" style="margin-bottom:10px">
           <button class="btn" id="btn-notify-test">${icon('send')}Probar</button>
           <button class="btn" id="btn-notify-guide">${icon('book')}Ayuda</button>
@@ -322,5 +323,27 @@ export async function renderGrupo() {
       toast('Error: ' + e.message, 'err', { action: { label: 'Detalles', fn: openDiagModal } });
     }
   };
+  const copyTopic = $('#btn-topic-copy');
+  if (copyTopic) copyTopic.onclick = () => copyText(me.ntfyTopic, 'Tema copiado: pégalo en ntfy', $('#ios-topic'));
   $('#btn-notify-guide').onclick = () => openNotifyGuideModal({ ntfyServer: myServer, ntfyTopic: me.ntfyTopic });
+}
+
+/* En iPhone la app ntfy no abre los enlaces ntfy://: hay que suscribirse a mano pegando el tema. */
+function iosSubscribe(topic, server) {
+  const custom = server.replace(/\/+$/, '') !== 'https://ntfy.sh';
+  return `<div class="ios-subscribe">
+    <p class="ios-subscribe__title">${icon('bell')}En iPhone, suscríbete así:</p>
+    <ol class="steps">
+      <li>Instala <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener">ntfy</a> desde la App Store, ábrela y <b>permite las notificaciones</b>.</li>
+      <li>Copia tu tema:</li>
+    </ol>
+    <div class="input-group">
+      <input class="input" id="ios-topic" value="${esc(topic)}" readonly>
+      <button class="btn btn--primary" id="btn-topic-copy">${icon('copy')}Copiar mi tema</button>
+    </div>
+    <ol class="steps" start="3">
+      <li>En ntfy pulsa <b>+</b>, pega el tema${custom ? `, activa <b>Usar otro servidor</b> y escribe <code>${esc(server)}</code>` : ''} y pulsa <b>Suscribirse</b>.</li>
+      <li>Vuelve aquí y pulsa <b>Probar</b>.</li>
+    </ol>
+  </div>`;
 }

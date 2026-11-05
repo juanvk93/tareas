@@ -97,7 +97,8 @@ const GROUP_DEFAULTS = {
   autoSync: true,
   lastSyncAt: 0,
   ntfyServer: 'https://ntfy.sh', // Servidor ntfy del grupo (cada miembro tiene su tema).
-  rollOver: false        // Las tareas sin repetición que no se hicieron se ven como de hoy.
+  rollOver: false,       // Las tareas sin repetición que no se hicieron se ven como de hoy.
+  onlyMine: false        // «Lo mío»: Hoy y Próximas solo enseñan lo tuyo o sin asignar.
 };
 
 export async function getSettings() {

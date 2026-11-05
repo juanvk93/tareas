@@ -9,6 +9,15 @@ export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 export const view = () => $('#view');
 
+/** iPhone o iPad (los iPad recientes se presentan como Mac con pantalla táctil). */
+export const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+/** Copia al portapapeles; si el navegador no deja, selecciona el campo para copiarlo a mano. */
+export async function copyText(text, okMsg, input) {
+  try { await navigator.clipboard.writeText(text); toast(okMsg, 'ok'); }
+  catch { if (input) input.select(); toast('Cópialo a mano: ya está seleccionado', 'err'); }
+}
+
 export function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]

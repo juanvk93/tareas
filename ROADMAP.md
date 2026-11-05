@@ -4,7 +4,7 @@ Mejoras elegidas el 2026-10-30. Se hacen **de una en una**: cada paso termina co
 versión nueva y changelog, y se para para probarlo en el móvil antes de seguir.
 Los números entre corchetes son los de la lista original de mejoras.
 
-Estado: `[ ]` pendiente · `[~]` en curso · `[x]` hecho. **Todo hecho (v2.5.1 → v3.2.0).**
+Estado: `[ ]` pendiente · `[~]` en curso · `[x]` hecho. Todo hecho: fases 0–4 (v2.5.1 → v3.2.0) y fase 5 (v3.3.0 → v3.4.2).
 
 ## Orden y motivo
 
@@ -115,6 +115,36 @@ Estado: `[ ]` pendiente · `[~]` en curso · `[x]` hecho. **Todo hecho (v2.5.1 �
 
 - [x] **Sincronizar al entrar (v3.2.1)**: al abrir, esperar a la hoja (máx. 8 s) antes de
   enseñar las tareas; al volver tras más de 1 minuto, atenuar la lista hasta que llegue.
+- [x] **Avisos en iPhone (v3.2.2)**: el enlace `ntfy://` solo funciona en Android. En iPhone,
+  Grupo → Avisos detecta el sistema y, en vez del botón «Suscribirme», enseña los pasos
+  (instalar ntfy, permitir notificaciones, «+» y pegar el tema) con un botón «Copiar mi tema».
+  La guía de ayuda también da los pasos del iPhone directamente.
+
+## Fase 5 · Comodidad (elegidas el 2026-11-05)
+
+Orden: de lo más sencillo y útil a lo que más toca la interfaz. Un paso por versión.
+
+- [x] **5.1 Filtro «Lo mío» (v3.3.0)**: en Hoy, un selector «Todas · Lo mío» junto al título
+  (solo en grupos compartidos con más de una persona). «Lo mío» enseña solo las pendientes
+  asignadas a ti o sin asignar, y avisa de cuántas quedan ocultas («3 de otros»). También
+  filtra Próximas. Se recuerda por grupo en este móvil (`group.onlyMine`, local). El catálogo
+  no se filtra: si una tarea habitual está pendiente para otra persona, sigue saliendo en color.
+- [x] **5.2 «Recuérdaselo» (v3.3.1)**: en el formulario de una tarea pendiente, botón que manda
+  un aviso a quien le toca: «Juan te recuerda «Sacar la basura» (de ayer)». Si no es de nadie,
+  «Recordárselo a todos». Solo si esa persona recibe avisos; como mucho uno cada 10 minutos por
+  tarea (para no insistir sin querer).
+- [x] **5.3 Vibración y tirar para sincronizar (v3.4.0)**: vibración corta al resolver (Android;
+  el iPhone no deja vibrar a las apps web). Tirar hacia abajo desde arriba de cualquier
+  pestaña sincroniza el grupo, con su indicador. Se desactiva el «tirar para recargar» del
+  navegador para que no recargue la app.
+- [x] **5.4 Deslizar (v3.4.1)**: en las filas de las listas (Próximas, resueltas hoy, Hechas),
+  deslizar a la derecha = resolver (o devolver a pendiente) y a la izquierda = posponer a
+  mañana, con Deshacer. En las casillas de Hoy, deslizar a la izquierda = mañana (el toque sigue
+  resolviendo y la pulsación larga, editar). Las repeticiones previstas no se deslizan.
+- [x] **5.5 Acceso directo «Añadir tarea» (v3.4.2)**: `shortcuts` en el manifiesto con su icono.
+  Al mantener pulsado el icono en Android sale «Añadir tarea», que abre la app con el
+  buscador listo para escribir. Android actualiza el manifiesto solo (puede tardar un día);
+  si no aparece, reinstalar la app.
 
 ## Decisiones tomadas (cambiables)
 

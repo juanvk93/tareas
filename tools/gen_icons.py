@@ -1,4 +1,4 @@
-"""Genera los PNG del icono (casa) con SDF + antialiasing. Solo stdlib.
+"""Genera los PNG del icono (casa) y del acceso directo «Añadir tarea» (+) con SDF + antialiasing. Solo stdlib.
 
 Uso: python3 tools/gen_icons.py icons
 """
@@ -29,10 +29,14 @@ def house_sd(x, y):
     door = max(door, y - 420)  # recortar por abajo (ya cae fuera del cuerpo)
     return max(shape, -door)
 
+def plus_sd(x, y):
+    # Cruz de trazo redondeado (acceso directo «Añadir tarea»)
+    return min(sd_seg(x, y, 256, 150, 256, 362), sd_seg(x, y, 150, 256, 362, 256)) - 30
+
 def cov(d, px):  # cobertura antialias: d en unidades del lienzo de 512, px = tamaño de píxel
     return max(0.0, min(1.0, 0.5 - d/px))
 
-def render(size, rounded, scale):
+def render(size, rounded, scale, glyph=house_sd, cy=268):
     px = 512.0/size
     rows = []
     for j in range(size):
@@ -44,8 +48,8 @@ def render(size, rounded, scale):
             t = (x+y)/1024.0
             col = [C1[k]+(C2[k]-C1[k])*t for k in range(3)]
             # glifo escalado alrededor del centro óptico
-            gx = 256+(x-256)/scale; gy = 268+(y-256)/scale
-            a = cov(house_sd(gx, gy), px/scale)
+            gx = 256+(x-256)/scale; gy = cy+(y-256)/scale
+            a = cov(glyph(gx, gy), px/scale)
             col = [col[k]*(1-a)+WHITE[k]*a for k in range(3)]
             row += bytes([int(col[0]+.5), int(col[1]+.5), int(col[2]+.5), int(bg_a*255+.5)])
         rows.append(bytes(row))
@@ -57,4 +61,7 @@ def render(size, rounded, scale):
 for name, size, rounded, scale in [('icon-512.png', 512, True, 1.0), ('icon-192.png', 192, True, 1.0),
                                    ('icon-180.png', 180, False, 0.92), ('icon-maskable-512.png', 512, False, 0.8)]:
     open(f'{OUT}/{name}', 'wb').write(render(size, rounded, scale))
+    print('ok', name)
+for name, size in [('shortcut-add-96.png', 96), ('shortcut-add-192.png', 192)]:
+    open(f'{OUT}/{name}', 'wb').write(render(size, True, 1.0, plus_sd, 256))
     print('ok', name)

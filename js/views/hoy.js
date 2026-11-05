@@ -3,12 +3,13 @@ import * as db from '../db.js';
 import { icon } from '../icons.js';
 import { ymd, todayKey, isRepeating, todoRepeatLabel } from '../dates.js';
 import { searchItems, guessIcon, normalizeTitle } from '../catalog.js';
-import { state, G, dueOf } from '../state.js';
+import { state, G, dueOf, mineFilter } from '../state.js';
 import { $, $$, view, esc, fmtLongDate, dueLabel, toast, avatar, fab } from '../ui.js';
 import { scheduleAutoSync } from '../sync-ui.js';
 import { setView, refresh } from '../nav.js';
-import { notifyCreated, completeTodo, runRoutine } from '../actions.js';
-import { todoList, wireTodoRows, loadCatalog, tile, parseChips, parseWith } from './parts.js';
+import { notifyCreated, completeTodo, runRoutine, postponeTask, nextDayFor } from '../actions.js';
+import { makeSwipeable } from '../swipe.js';
+import { todoList, wireTodoRows, loadCatalog, tile, parseChips, parseWith, mineChips, wireMineChips } from './parts.js';
 import { openTodoModal } from '../modals/todo.js';
 import { openItemModal, openCategoryModal } from '../modals/catalog.js';
 import { openRoutineModal } from '../modals/routine.js';
@@ -22,7 +23,11 @@ export async function renderHoy() {
     .sort((a, b) => dueOf(a).localeCompare(dueOf(b)) || a.createdAt - b.createdAt);
   const doneToday = all.filter((t) => t.done && ymd(new Date(t.doneAt)) === today).sort((a, b) => b.doneAt - a.doneAt);
   const pendingByTitle = new Map(pending.map((t) => [normalizeTitle(t.title), t]));
-  const upcomingCount = all.filter((t) => !t.done && !t.paused && t.dueDate > today).length;
+  // «Lo mío» filtra las casillas de arriba; el catálogo sigue viendo todas las pendientes.
+  const mine = mineFilter(members);
+  const shown = pending.filter(mine.keep);
+  const hidden = pending.length - shown.length;
+  const upcomingCount = all.filter((t) => !t.done && !t.paused && t.dueDate > today && mine.keep(t)).length;
   const recentFree = recent.filter((r) => !pendingByTitle.has(normalizeTitle(r.name)));
 
   const pendingTile = (t) => {
@@ -50,7 +55,7 @@ export async function renderHoy() {
     <div class="list-head">
       <div>
         <div class="muted text-sm">${esc(fmtLongDate(new Date()))}</div>
-        <h2 class="list-head__title">${pending.length ? `${pending.length} pendiente${pending.length === 1 ? '' : 's'}` : 'Todo al día'}</h2>
+        <h2 class="list-head__title">${shown.length ? `${shown.length} pendiente${shown.length === 1 ? '' : 's'}` : 'Todo al día'}</h2>
       </div>
       ${doneToday.length ? `<button class="btn btn--ghost btn--sm" id="toggle-done">${icon('check-circle')}${doneToday.length} hoy</button>` : ''}
     </div>
@@ -59,11 +64,13 @@ export async function renderHoy() {
       <input class="input" id="search-input" placeholder="¿Qué hay que hacer?" maxlength="80" enterkeyhint="done" value="${esc(state.search || '')}">
     </form>
     <div id="search-results"></div>
-    <div id="main-tiles">`;
+    <div id="main-tiles">${mineChips(mine, hidden)}`;
 
-  if (pending.length) {
-    html += `<div class="tiles tiles--pending">${pending.map(pendingTile).join('')}</div>
-      <p class="help center tiles-hint">Toca para resolver · Mantén pulsado para editar</p>`;
+  if (shown.length) {
+    html += `<div class="tiles tiles--pending">${shown.map(pendingTile).join('')}</div>
+      <p class="help center tiles-hint">Toca para resolver · Mantén pulsado para editar · Desliza a la izquierda para pasarla a mañana</p>`;
+  } else if (hidden) {
+    html += `<div class="card empty"><span class="empty__emoji">${icon('sparkles')}</span>Nada pendiente para ti.<div class="muted text-sm" style="margin-top:6px">${hidden === 1 ? 'Hay 1 tarea' : `Hay ${hidden} tareas`} de otras personas: toca <b>Todas</b> para verlas.</div></div>`;
   } else {
     html += `<div class="card empty"><span class="empty__emoji">${icon('sparkles')}</span>No hay nada pendiente para hoy.<div class="muted text-sm" style="margin-top:6px">Toca una tarea de abajo para añadirla.</div></div>`;
   }
@@ -103,6 +110,7 @@ export async function renderHoy() {
 
   wireTiles(all, routines);
   wireTodoRows(all);
+  wireMineChips();
   $('#btn-new-routine').onclick = () => openRoutineModal(null);
   $$('[data-goto]').forEach((b) => b.onclick = () => setView(b.dataset.goto));
   $$('[data-edit-cat]').forEach((b) => b.onclick = () => openCategoryModal(cats.find((c) => c.id === b.dataset.editCat)));
@@ -180,6 +188,8 @@ export function wireTiles(all, routines = []) {
     el.dataset.wired = '1';
     let timer = null, longFired = false;
     const routine = routines.find((r) => r.id === el.dataset.routine);
+    const pendingTodo = all.find((x) => x.id === el.dataset.tileTodo);
+    if (pendingTodo) makeSwipeable(el, { left: { label: dueLabel(nextDayFor(pendingTodo)), icon: 'calendar', cls: 'swipe-bg--later', run: () => postponeTask(pendingTodo.id, nextDayFor(pendingTodo)) } });
     const edit = async () => {
       if (routine) return openRoutineModal(routine);
       const t = all.find((x) => x.id === el.dataset.tileTodo);
@@ -187,10 +197,13 @@ export function wireTiles(all, routines = []) {
       const item = el.dataset.itemId && await db.getOne('items', el.dataset.itemId);
       openItemModal(item ? { item } : { title: el.dataset.tileAdd, icon: el.dataset.tileIcon });
     };
-    el.addEventListener('pointerdown', () => {
-      longFired = false;
+    let x0 = 0, y0 = 0;
+    el.addEventListener('pointerdown', (e) => {
+      longFired = false; x0 = e.clientX; y0 = e.clientY;
       timer = setTimeout(() => { longFired = true; navigator.vibrate?.(15); edit(); }, LONG_MS);
     });
+    // Si el dedo se mueve (desplazar, tirar para sincronizar) no es una pulsación larga.
+    el.addEventListener('pointermove', (e) => { if (Math.hypot(e.clientX - x0, e.clientY - y0) > 10) clearTimeout(timer); });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => el.addEventListener(ev, () => clearTimeout(timer)));
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); clearTimeout(timer); if (!longFired) edit(); longFired = true; });
     el.addEventListener('click', () => {

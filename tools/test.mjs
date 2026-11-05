@@ -18,7 +18,7 @@ import { KEEP_DONE_DAYS, KEEP_DELETED_DAYS } from '../js/db.js';
 import { REQUIRED_SCRIPT_VERSION } from '../js/sync.js';
 import { createGasSim } from './gas-sim.mjs';
 import { parseTask } from '../js/parse.js';
-import { recipientsOf, subscribeLink, randomTopic, isValidTopic, splitAssignee } from '../js/notify.js';
+import { recipientsOf, subscribeLink, randomTopic, isValidTopic, splitAssignee, reminderTargets } from '../js/notify.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFile(join(ROOT, p), 'utf8');
@@ -323,6 +323,11 @@ describe('notify.js', () => {
     const to = [{ id: 'a', name: 'Ana' }, { id: 'p', name: 'Pepe' }];
     assert.deepEqual(splitAssignee(to, 'a'), { assignee: to[0], rest: [to[1]] });
     assert.deepEqual(splitAssignee(to, null), { assignee: null, rest: to });
+    // Recordar: a quien le toca; si no es de nadie, a todos; si es tuya o no recibe avisos, a nadie.
+    assert.deepEqual(reminderTargets(to, 'a', 'me'), [to[0]]);
+    assert.deepEqual(reminderTargets(to, null, 'me'), to);
+    assert.deepEqual(reminderTargets(to, 'me', 'me'), []);
+    assert.deepEqual(reminderTargets(to, 'zz', 'me'), []);
     assert.deepEqual(splitAssignee(to, 'j'), { assignee: null, rest: to }, 'asignada a quien la crea: aviso normal a los demás');
   });
 
@@ -481,6 +486,14 @@ describe('Service Worker', () => {
     const refs = [...html.matchAll(/(?:href|src)="([^"#:]+)"/g)].map((m) => normalize(m[1]));
     const missing = refs.filter((r) => !shell.has(r));
     assert.deepEqual(missing, [], `añade a APP_SHELL: ${missing.join(', ')}`);
+  });
+
+  test('los iconos y accesos directos del manifiesto existen y están en APP_SHELL', async () => {
+    const shell = new Set(shellOf(await read('sw.js')).map((p) => normalize(p)));
+    const m = JSON.parse(await read('manifest.webmanifest'));
+    const icons = [...m.icons, ...(m.shortcuts || []).flatMap((s) => s.icons || [])].map((i) => normalize(i.src));
+    assert.deepEqual(icons.filter((p) => !shell.has(p)), [], 'añade a APP_SHELL los iconos del manifiesto');
+    for (const s of m.shortcuts || []) assert.ok(s.url.startsWith('./') && s.name, `acceso directo sin url relativa o nombre: ${s.name}`);
   });
 
   test('todos los archivos de APP_SHELL existen', async () => {

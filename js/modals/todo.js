@@ -7,7 +7,7 @@ import { state, G, dueOf } from '../state.js';
 import { $, $$, esc, dueLabel, toast, openModal, closeModal, confirmDialog, avatar } from '../ui.js';
 import { scheduleAutoSync } from '../sync-ui.js';
 import { refresh } from '../nav.js';
-import { notifyCreated, notifyAssigned, pauseTask, resumeTask, postponeTask } from '../actions.js';
+import { notifyCreated, notifyAssigned, pauseTask, resumeTask, postponeTask, reminderInfo, remindTask } from '../actions.js';
 import { loadCatalog, parseChips, parseWith } from '../views/parts.js';
 
 const FROM_DONE_ON = 'Si se hace tarde, la siguiente también se retrasa.';
@@ -30,6 +30,8 @@ export async function openTodoModal({ todo = null, dueDate = todayKey(), when = 
   // Posponer (tareas pendientes): desde su fecha vigente o, si va atrasada, desde hoy.
   const canPostpone = todo && !todo.done && !todo.paused;
   const postponeBase = canPostpone && dueOf(todo) > today ? dueOf(todo) : today;
+  // «Recuérdaselo» (pendientes de un grupo compartido que no son tuyas).
+  const remind = todo && !todo.done && !G().personal ? await reminderInfo(todo) : null;
   const whenMode = when || (cur.dueDate === today ? 'today' : cur.dueDate === tomorrow ? 'tomorrow' : 'date');
   const catName = (id) => (cats.find((c) => c.id === id) || {}).name || 'Sin categoría';
   // Opciones del selector "Elegir de tus tareas": catálogo + recientes.
@@ -58,6 +60,12 @@ export async function openTodoModal({ todo = null, dueDate = todayKey(), when = 
         <button type="button" class="btn btn--sm" id="td-postpone-go">Posponer</button>
       </div>
       ${isRepeating(todo.repeat) && !countsFromDone(todo) ? '<p class="help">Solo esta vez: las siguientes siguen su calendario.</p>' : ''}
+    </div>` : ''}
+    ${remind && (remind.targets.length || remind.assignee) ? `
+    <div class="field"><label>Recordatorio</label>
+      ${remind.targets.length
+        ? `<button type="button" class="btn btn--sm btn--block" id="td-remind">${icon('bell')}${remind.assignee ? `Recuérdaselo a ${esc(remind.assignee.name)}` : 'Recordárselo a todos'}</button>`
+        : `<p class="help">${esc(remind.assignee.name)} no recibe avisos: no se le puede recordar.</p>`}
     </div>` : ''}
     ${todo ? '' : `
     <div class="field"><label>Elegir de tus tareas</label>
@@ -323,6 +331,8 @@ export async function openTodoModal({ todo = null, dueDate = todayKey(), when = 
       $$('[data-postpone]', modal).forEach((b) => b.onclick = () => {
         closeModal(); postponeTask(todo.id, addDays(postponeBase, Number(b.dataset.postpone)));
       });
+      const remindBtn = $('#td-remind', modal);
+      if (remindBtn) remindBtn.onclick = () => { closeModal(); remindTask(todo); };
       const otherBtn = $('#td-postpone-other', modal);
       if (otherBtn) otherBtn.onclick = () => { $('#td-postpone-pick', modal).classList.remove('hidden'); $('#td-postpone-date', modal).focus(); };
       const goBtn = $('#td-postpone-go', modal);

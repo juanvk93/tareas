@@ -25,6 +25,15 @@ export const G = () => db.activeGroup(state.settings);
 
 export function hasGroup() { return !!G(); }
 
+/** «Lo mío» (group.onlyMine, local): solo lo asignado a ti o sin asignar.
+ * Solo tiene sentido en grupos compartidos con más de una persona. */
+export function mineFilter(members) {
+  const g = G();
+  const applies = !g.personal && members.length > 1;
+  const on = applies && !!g.onlyMine;
+  return { applies, on, keep: (t) => !on || !t.assignee || t.assignee === g.currentMemberId };
+}
+
 /** Fecha que toca ahora a una tarea (ver todoDue / currentDue: agrupa repeticiones perdidas).
  * Con «Las tareas sin hacer pasan a hoy» (group.rollOver), las no repetidas atrasadas son de hoy. */
 export function dueOf(t) {

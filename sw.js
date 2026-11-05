@@ -6,7 +6,7 @@
  * la actualización de la caché en los dispositivos. Debe coincidir con la
  * versión declarada en js/changelog.js.
  */
-const CACHE_VERSION = 'v3.2.1';
+const CACHE_VERSION = 'v3.4.2';
 const CACHE_NAME = `tareas-hogar-${CACHE_VERSION}`;
 
 const APP_SHELL = [
@@ -36,6 +36,8 @@ const APP_SHELL = [
   './js/modals/routine.js',
   './js/diag.js',
   './js/update.js',
+  './js/pull.js',
+  './js/swipe.js',
   './js/db.js',
   './js/sync.js',
   './js/changelog.js',
@@ -49,7 +51,9 @@ const APP_SHELL = [
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-180.png',
-  './icons/icon-maskable-512.png'
+  './icons/icon-maskable-512.png',
+  './icons/shortcut-add-96.png',
+  './icons/shortcut-add-192.png'
 ];
 
 // Todo el shell sale de la red sin pasar por la caché HTTP del navegador

@@ -97,6 +97,12 @@ export function splitAssignee(recipients, assigneeId) {
   return { assignee, rest: assignee ? recipients.filter((r) => r !== assignee) : recipients };
 }
 
+/** «Recuérdaselo»: a quien le toca o, si no es de nadie, a todos los demás. Si es tuya, a nadie. */
+export function reminderTargets(recipients, assigneeId, meId) {
+  if (assigneeId && assigneeId === meId) return [];
+  return assigneeId ? recipients.filter((r) => r.id === assigneeId) : recipients;
+}
+
 /**
  * Envía un aviso a cada destinatario (su propio tema). Nunca lanza: lo que
  * falla se encola. Devuelve cuántos se enviaron y cuántos quedaron en cola.

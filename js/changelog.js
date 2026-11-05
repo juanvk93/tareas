@@ -12,9 +12,52 @@
  *
  * Tipos de cambio: "add" (nuevo), "chg" (cambio/mejora), "fix" (corrección).
  */
-export const APP_VERSION = '3.2.1';
+export const APP_VERSION = '3.4.2';
 
 export const CHANGELOG = [
+  {
+    version: '3.4.2',
+    date: '2026-11-05',
+    changes: [
+      { type: 'add', text: 'Acceso directo «Añadir tarea»: en Android, mantén pulsado el icono de Tareas y elige «Añadir tarea» para abrir la app lista para escribir (puede tardar hasta un día en aparecer; si no sale, desinstala y vuelve a instalar la app).' }
+    ]
+  },
+  {
+    version: '3.4.1',
+    date: '2026-11-05',
+    changes: [
+      { type: 'add', text: 'Deslizar: en Hoy, desliza una casilla a la izquierda para pasarla a mañana. En las listas (Próximas, Hechas, resueltas hoy), a la derecha la resuelves (o la devuelves a pendiente) y a la izquierda la pasas al día siguiente. Siempre con Deshacer.' }
+    ]
+  },
+  {
+    version: '3.4.0',
+    date: '2026-11-05',
+    changes: [
+      { type: 'add', text: 'Tira hacia abajo desde arriba de cualquier pestaña para sincronizar con Google Sheets.' },
+      { type: 'add', text: 'El móvil vibra un momento al resolver una tarea (en Android; el iPhone no lo permite a las apps web).' }
+    ]
+  },
+  {
+    version: '3.3.1',
+    date: '2026-11-05',
+    changes: [
+      { type: 'add', text: '«Recuérdaselo»: en el formulario de una tarea pendiente (mantén pulsada la casilla), un botón manda un aviso a quien le toca, por ejemplo «Juan te recuerda «Sacar la basura» de ayer». Si no es de nadie, se recuerda a todos. Como mucho uno cada 10 minutos por tarea.' }
+    ]
+  },
+  {
+    version: '3.3.0',
+    date: '2026-11-05',
+    changes: [
+      { type: 'add', text: 'Filtro «Lo mío» en Hoy y Próximas: enseña solo las tareas que te tocan a ti o que no son de nadie, y te dice cuántas quedan de otras personas. Se recuerda en cada grupo.' }
+    ]
+  },
+  {
+    version: '3.2.2',
+    date: '2026-11-05',
+    changes: [
+      { type: 'chg', text: 'Avisos en iPhone: Grupo → Avisos al móvil explica cómo suscribirse en la app ntfy y tiene un botón «Copiar mi tema» (el botón «Suscribirme» solo funciona en Android).' }
+    ]
+  },
   {
     version: '3.2.1',
     date: '2026-11-05',

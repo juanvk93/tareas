@@ -4,10 +4,12 @@ import { icon } from '../icons.js';
 import { todayKey, isRepeating, todoRepeatLabel } from '../dates.js';
 import { parseTask } from '../parse.js';
 import { normalizeTitle } from '../catalog.js';
-import { G, dueOf } from '../state.js';
-import { $$, esc, fmtTime, relativeDay, dueLabel, avatar } from '../ui.js';
-import { completeTodo, reopenTodo, resumeTask } from '../actions.js';
+import { state, G, dueOf } from '../state.js';
+import { $$, esc, toast, fmtTime, relativeDay, dueLabel, avatar } from '../ui.js';
+import { completeTodo, reopenTodo, resumeTask, postponeTask, nextDayFor } from '../actions.js';
+import { makeSwipeable } from '../swipe.js';
 import { openTodoModal } from '../modals/todo.js';
+import { refresh } from '../nav.js';
 
 export function todoRow(t, memById, { hideDate = false } = {}) {
   const today = todayKey();
@@ -36,7 +38,8 @@ export function todoRow(t, memById, { hideDate = false } = {}) {
     : t.paused && !t.done
     ? `<button class="todo__check todo__check--paused" data-resume="${esc(t.id)}" aria-label="Reanudar">${icon('play')}</button>`
     : `<button class="todo__check" data-check="${esc(t.id)}" aria-label="${t.done ? 'Marcar como pendiente' : 'Marcar como resuelta'}">${icon('check')}</button>`;
-  return `<div class="todo ${t.done ? 'is-done' : ''} ${overdue ? 'is-overdue' : ''} ${t.projected ? 'is-projected' : ''}">
+  const swipe = !t.projected && !(t.paused && !t.done) ? `data-swipe="${esc(t.id)}"` : ''; // Las previstas y en pausa no.
+  return `<div class="todo ${t.done ? 'is-done' : ''} ${overdue ? 'is-overdue' : ''} ${t.projected ? 'is-projected' : ''}" ${swipe}>
     ${check}
     <div class="todo__body" data-open="${esc(t.id)}">
       <div class="todo__title">${icon(t.icon || 'sparkles')}<span>${esc(t.title)}</span></div>
@@ -61,6 +64,26 @@ export function parseWith(text, members, ignore) {
   return parseTask(text, { members: members.map((m) => ({ id: m.id, name: m.name })), ignore });
 }
 
+/** Selector «Todas · Lo mío» (vacío si no aplica). hidden = pendientes de otros que no se ven. */
+export function mineChips(f, hidden) {
+  if (!f.applies) return '';
+  return `<div class="mine-filter" role="group" aria-label="Qué tareas ver">
+    <button type="button" class="chip-btn ${f.on ? '' : 'is-active'}" data-mine="0" aria-pressed="${!f.on}">Todas</button>
+    <button type="button" class="chip-btn ${f.on ? 'is-active' : ''}" data-mine="1" aria-pressed="${f.on}">${icon('user')}Lo mío</button>
+    ${f.on && hidden ? `<span class="mine-filter__hidden">${hidden} de otros</span>` : ''}
+  </div>`;
+}
+
+export function wireMineChips() {
+  $$('[data-mine]').forEach((b) => b.onclick = async () => {
+    const on = b.dataset.mine === '1';
+    if (on === !!G().onlyMine) return;
+    state.settings = await db.updateGroup(G().id, { onlyMine: on });
+    if (on) toast('Solo lo tuyo y lo que no es de nadie');
+    await refresh();
+  });
+}
+
 export function todoList(items, memById, opts) {
   return `<div class="card card--pad0">${items.map((t) => todoRow(t, memById, opts)).join('')}</div>`;
 }
@@ -72,6 +95,15 @@ export function wireTodoRows(all) {
     t.done ? reopenTodo(t.id) : completeTodo(t.id);
   });
   $$('[data-resume]').forEach((b) => b.onclick = () => resumeTask(b.dataset.resume));
+  // Deslizar: a la derecha resuelve (o devuelve a pendiente); a la izquierda, un día más.
+  $$('[data-swipe]').forEach((el) => {
+    const t = all.find((x) => x.id === el.dataset.swipe);
+    if (!t) return;
+    makeSwipeable(el, t.done
+      ? { right: { label: 'Pendiente', icon: 'undo', cls: 'swipe-bg--undo', run: () => reopenTodo(t.id) } }
+      : { right: { label: 'Resuelta', icon: 'check', run: () => completeTodo(t.id) },
+          left: { label: dueLabel(nextDayFor(t)), icon: 'calendar', cls: 'swipe-bg--later', run: () => postponeTask(t.id, nextDayFor(t)) } });
+  });
   $$('[data-open]').forEach((b) => b.onclick = () => openTodoModal({ todo: all.find((x) => x.id === b.dataset.open) }));
 }
 

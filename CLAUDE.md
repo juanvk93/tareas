@@ -38,6 +38,8 @@ Tareas/
 │   ├── groups.js           # Crear, unirse (invitaciones), cambiar y salir de grupos.
 │   ├── diag.js             # Registro de diagnóstico (logEvent, maskUrl/maskSecret).
 │   ├── update.js           # Registro del Service Worker y aviso «Versión X disponible».
+│   ├── pull.js             # Tirar hacia abajo para sincronizar (gestos táctiles).
+│   ├── swipe.js            # Deslizar filas y casillas: makeSwipeable(el, {left, right}).
 │   ├── views/              # Una por pestaña: hoy, proximas, hechas, grupo, ajustes, onboarding
 │   │                       # + parts.js (filas de tarea, casillas, loadCatalog).
 │   ├── modals/             # todo (crear/editar tarea), catalog (tarea habitual, categoría),
@@ -111,7 +113,7 @@ Tareas/
 
 - `settings.groups` = lista de grupos de este móvil y `settings.activeGroupId` el que se ve.
   Cada grupo: `{id, name, personal, currentMemberId, syncUrl, syncSecret, autoSync, lastSyncAt,
-  ntfyServer, rollOver, createdAt}`. En `state.js`, **`G()`** devuelve el grupo
+  ntfyServer, rollOver, onlyMine, createdAt}`. En `state.js`, **`G()`** devuelve el grupo
   activo; usa siempre `G().id` / `G().currentMemberId` (nada de campos de grupo sueltos).
   Helpers en `db.js`: `activeGroup`, `addGroup`, `updateGroup`, `removeGroup`.
 - **`groupId` es LOCAL:** cada registro de `members`/`todos` lo lleva, pero no se sube a la hoja.
@@ -177,10 +179,18 @@ Definidos en `db.js` (DB v4). `DATA_STORES = ['members', 'todos', 'categories', 
   se resuelve + intervalo (`nextDueOnComplete`). No se agrupa (`todoDue` devuelve su fecha) ni se
   proyecta en Próximas. Usa `todoDue(t)` / `todoRepeatLabel(t)` en la UI, nunca `currentDue` o
   `repeatLabel` sueltos sobre una tarea.
+- **Deslizar** (`swipe.js`): filas con `data-swipe` (todas salvo previstas y en pausa; en
+  `wireTodoRows`): derecha = resolver / devolver a pendiente, izquierda = `nextDayFor(t)`. Casillas
+  pendientes de Hoy (`wireTiles`): solo izquierda. `touch-action: pan-y` deja el vertical a la
+  página; tras deslizar se anula el `click`. El fondo `.swipe-bg` se inserta delante del elemento
+  (su contenedor, `.card--pad0` o `.tiles`, va con `position: relative`).
 - **Posponer** (`db.postponeTodo` → `postponePatch`): mueve `dueDate`; en repetidas con calendario
   guarda `seriesDue` (la repetición que representaba). `todoDue`, `nextDueOnComplete` y
   `projectRepeats` parten de `seriesBase(t)` = `seriesDue || dueDate`, así la serie no se desplaza.
   La siguiente repetición y la pausa limpian `seriesDue`.
+- **«Lo mío»** (`group.onlyMine`, local): `mineFilter(members)` de `state.js` (solo en compartidos
+  con más de una persona) filtra las casillas de Hoy y Próximas; `mineChips`/`wireMineChips`
+  (parts.js) pintan el selector. El catálogo y la cuenta del selector de grupos no se filtran.
 - **«Pasan a hoy»** (`group.rollOver`, local, apagado): `dueOf()` de `state.js` devuelve hoy para
   las no repetidas atrasadas; la fila muestra «Desde …». No cambia datos.
 - **Pausa** (`db.pauseTodo/resumeTodo`, vacaciones `pauseGroupRepeats/resumeGroupRepeats`):
@@ -218,6 +228,10 @@ Definidos en `db.js` (DB v4). `DATA_STORES = ['members', 'todos', 'categories', 
 - **CORS / gotcha importante:** GET con querystring y POST con `Content-Type: text/plain`
   (petición "simple", sin preflight OPTIONS, que Apps Script no gestiona bien). **No añadir
   cabeceras personalizadas** (el token va en el body/querystring, no en `Authorization`).
+- **Tirar para sincronizar** (`pull.js`, `installPullToRefresh()` en `init`): con la página arriba,
+  sin modal y con hoja, tirar ≥ `PULL_TRIGGER` llama a `doSync(false)`. `overscroll-behavior-y:
+  none` en `html, body` quita el «tirar para recargar» del navegador. Resolver vibra 30 ms
+  (`completeTodo`); la pulsación larga de las casillas se cancela si el dedo se mueve.
 - Auto-sync: tras cada cambio se llama a `scheduleAutoSync()` (debounce 1,5 s) si hay URL y
   `autoSync` activo. La cabecera tiene botón de sync manual (`#btn-sync`).
 - El Web App debe desplegarse con acceso **"Cualquier persona"**; los responses incluyen
@@ -258,11 +272,15 @@ Definidos en `db.js` (DB v4). `DATA_STORES = ['members', 'todos', 'categories', 
 - **Asignar:** al añadir con «¿A quién le toca?» = otra persona, esa recibe solo «X te ha asignado
   «…» para …» y el resto el aviso normal (`splitAssignee`). Al editar y cambiar la persona
   (`notifyAssigned`), solo ella. Asignarse a uno mismo no genera aviso de asignación.
+  **«Recuérdaselo»** (modal de tarea, `remindTask`): `reminderTargets()` = quien le toca o, sin
+  asignar, todos los demás; prioridad 4; uno cada `REMIND_GAP_MS` (10 min) por tarea y sesión.
   Título = nombre del grupo. La cola guarda servidor y tema de cada mensaje (`flushQueue()` global).
 - Tema: `memberTopic(grupo, nombre)` = `randomTopic(...)` → p. ej. `tareas-hogar-juan-k3j9x2m1qa`
   (`[-_A-Za-z0-9]{1,64}`). Se genera al crear/unirse aunque los avisos estén apagados.
 - **Suscribirse:** `subscribeLink(server, topic, display)` → `ntfy://host/tema?display=…`
-  (`secure=false` si el servidor es http); la app ntfy de Android se suscribe sola. «Probar» envía
+  (`secure=false` si el servidor es http); la app ntfy de Android se suscribe sola. En iPhone ese
+  enlace no funciona: `isIOS()` (ui.js) cambia el botón por los pasos y «Copiar mi tema»
+  (`iosSubscribe` en grupo.js; `copyText()` de ui.js copia o selecciona el campo). «Probar» envía
   a tu propio tema.
 - Sin red → cola en `meta.ntfyQueue` (máx. 50, caducan a las 24 h); `flushQueue()` en cada tick.
 
@@ -356,7 +374,12 @@ del manifest/SW también, así funciona bajo `usuario.github.io/repo/`.
 con una **casa** blanca (tejado en chevron, chimenea, cuerpo con la puerta hueca). Los PNG se
 generan con `python3 tools/gen_icons.py icons` (stdlib, sin PIL), que dibuja la misma geometría con SDF y
 antialiasing: 192/512 con esquinas redondeadas, 180 (Apple) y maskable-512 a sangre (la
-maskable con la casa al 80 % para respetar la zona segura). Si cambias el diseño, cambia
+maskable con la casa al 80 % para respetar la zona segura). También genera
+`shortcut-add-96/192.png` (un «+») para el acceso directo del manifiesto.
+
+**Acceso directo «Añadir tarea»** (`shortcuts` del manifiesto, solo Android): abre
+`./index.html?accion=nueva`; `init()` quita el parámetro y pone el foco en el buscador de Hoy (sin
+novedades esa vez). `npm test` comprueba que los iconos del manifiesto están en `APP_SHELL`. Si cambias el diseño, cambia
 ambos (SVG y script) y regenera los cuatro PNG.
 
 **Iconos de la interfaz:** `js/icons.js`, trazo 24×24 estilo "outline", `stroke="currentColor"`.
