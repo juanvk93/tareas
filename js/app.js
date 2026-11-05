@@ -2,9 +2,9 @@
 import * as db from './db.js';
 import { APP_VERSION } from './changelog.js';
 import { icon } from './icons.js';
-import { state } from './state.js';
-import { $, $$, closeModal, applyAppearance } from './ui.js';
-import { doSync, startBackgroundSync } from './sync-ui.js';
+import { state, G } from './state.js';
+import { $, $$, view, closeModal, applyAppearance, applyShell } from './ui.js';
+import { doSync, startBackgroundSync, wantsSync, waitForSync } from './sync-ui.js';
 import { setView, registerViews } from './nav.js';
 import { openGroupSwitcher, checkInviteLink } from './groups.js';
 import { openChangelogModal, showWhatsNewIfUpdated } from './modals/news.js';
@@ -51,17 +51,31 @@ async function init() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
   window.addEventListener('hashchange', checkInviteLink);
 
-  await setView('hoy');
+  // Historial antiguo fuera (una vez al día) y sincronización de todos los grupos.
+  db.purgeOld().catch((e) => console.warn('Limpieza:', e));
+  startBackgroundSync();
+
+  // Lo primero que se ve es lo de la hoja: se espera a que llegue (como mucho OPEN_WAIT_MS).
+  // Sin conexión, sin hoja o si Google tarda, se pinta lo guardado y se repinta al llegar.
+  if (wantsSync()) {
+    renderOpening();
+    window.__tareasBooted = true;
+    await waitForSync(G().id);
+  }
+  // Si la sincronización ya repintó (llegó algo) o se cambió de pestaña, no se pisa.
+  if (!window.__tareasBooted || $('#view .opening')) await setView('hoy');
   window.__tareasBooted = true; // Ver el arranque de seguridad de index.html.
   await checkInviteLink();
   if (!$('.modal-overlay')) await showWhatsNewIfUpdated();
 
-  // Historial antiguo fuera (una vez al día) y sincronización en segundo plano.
-  db.purgeOld().catch((e) => console.warn('Limpieza:', e));
-  startBackgroundSync();
-
   // Service Worker (+ aviso «Versión X disponible · Recargar»).
   await registerServiceWorker();
+}
+
+/** Pantalla de espera mientras llega la hoja al abrir la app. */
+function renderOpening() {
+  applyShell();
+  view().innerHTML = `<div class="opening">${icon('refresh')}<p>Trayendo lo último de Google Sheets…</p></div>`;
 }
 
 init();

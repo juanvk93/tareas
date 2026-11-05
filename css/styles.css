@@ -170,6 +170,12 @@ input, select, textarea { font-family: inherit; }
   padding: 28px 16px;
   font-size: 14px;
 }
+.opening {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 96px 16px; color: var(--text-dim); font-size: 14px; text-align: center;
+}
+.opening svg { width: 30px; height: 30px; color: var(--accent); animation: spin 1s linear infinite; }
+body.is-refreshing #view { opacity: .5; transition: opacity .2s; }
 .empty__emoji { font-size: 34px; line-height: 0; display: block; margin-bottom: 12px; color: var(--accent); }
 
 /* ------------------------------- Botones --------------------------------- */

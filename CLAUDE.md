@@ -227,6 +227,10 @@ Definidos en `db.js` (DB v4). `DATA_STORES = ['members', 'todos', 'categories', 
   `doSync(silent, groupId)` no se solapa por grupo (mapa `syncing`), solo repinta si llegó algo
   al grupo activo
   (y nunca con un modal abierto o mientras se escribe en un input de la vista).
+- **Al abrir** (`init`), si el grupo activo tiene hoja con auto-sync y hay red (`wantsSync()`),
+  se pinta `.opening` («Trayendo lo último…») y se espera a su sincronización
+  (`waitForSync`, máx. `OPEN_WAIT_MS` = 8 s) antes de pintar Hoy. **Al volver** tras más de
+  `STALE_MS` (1 min) fuera, `body.is-refreshing` atenúa la vista hasta que acaba.
 - `Code.gs` es genérico (filas `store, id, updatedAt, deleted, json, rev`): no conoce los
   almacenes salvo `todos`/`members` para el archivo y el resumen.
 - **Resumen diario (Code.gs):** `instalarResumenDiario()` (el usuario lo ejecuta una vez; también

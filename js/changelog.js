@@ -12,9 +12,17 @@
  *
  * Tipos de cambio: "add" (nuevo), "chg" (cambio/mejora), "fix" (corrección).
  */
-export const APP_VERSION = '3.2.0';
+export const APP_VERSION = '3.2.1';
 
 export const CHANGELOG = [
+  {
+    version: '3.2.1',
+    date: '2026-11-05',
+    changes: [
+      { type: 'chg', text: 'Al abrir la app primero se trae lo último de Google Sheets y después se enseñan las tareas, así lo que ves de primeras es lo real (si Google tarda más de 8 segundos o no hay conexión, se enseña lo guardado y se actualiza al llegar).' },
+      { type: 'chg', text: 'Al volver a la app tras un rato, la lista se ve atenuada hasta que llegan los cambios.' }
+    ]
+  },
   {
     version: '3.2.0',
     date: '2026-10-30',

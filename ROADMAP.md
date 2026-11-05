@@ -111,6 +111,11 @@ Estado: `[ ]` pendiente · `[~]` en curso · `[x]` hecho. **Todo hecho (v2.5.1 �
   `instalarResumenDiario` en el editor (pide permiso para conectarse a ntfy). La lógica de
   fechas se copia de `dates.js` y una prueba compara las dos con muchos casos.
 
+## Peticiones posteriores
+
+- [x] **Sincronizar al entrar (v3.2.1)**: al abrir, esperar a la hoja (máx. 8 s) antes de
+  enseñar las tareas; al volver tras más de 1 minuto, atenuar la lista hasta que llegue.
+
 ## Decisiones tomadas (cambiables)
 
 - Días de la semana también con «cada 2 semanas» (cuesta lo mismo).

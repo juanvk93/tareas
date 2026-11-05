@@ -57,6 +57,7 @@ const web = createServer(async (req, res) => {
 const gasSim = createGasSim();
 const gasV1 = createGasSim({ source: 'tools/fixtures/Code.v1.gs' });
 const gasLog = []; // {action, sent, got, full}: lo que pide la app y lo que recibe.
+let gasDelay = 0; // ms que tarda en responder el Web App simulado (Google suele tardar 1–3 s).
 const rows = (store) => gasSim.sheetRows().slice(1)
   .filter((r) => r[1] && r[0] === store && !(r[3] === 1 || r[3] === true))
   .map((r) => ({ store: r[0], id: r[1], updatedAt: r[2], data: JSON.parse(r[4] || '{}') }));
@@ -73,8 +74,10 @@ const gas = createServer((req, res) => {
     const out = req.method === 'POST' ? sim.request('POST', {}, JSON.parse(body || '{}')) : sim.request('GET', Object.fromEntries(u.searchParams));
     const sent = req.method === 'POST' ? (JSON.parse(body || '{}').records || []).length : 0;
     if (sim === gasSim) gasLog.push({ action: req.method === 'POST' ? JSON.parse(body || '{}').action : u.searchParams.get('action'), sent, got: (out.records || []).length, full: out.full });
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-    res.end(JSON.stringify(out));
+    setTimeout(() => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(out));
+    }, gasDelay);
   });
 });
 
@@ -679,6 +682,21 @@ await run('Sincroniza con Google Sheets (simulado) entre dos móviles', async ()
   if (rows('routines').length !== 1) throw new Error(`la hoja tiene ${rows('routines').length} rutinas (debería ser 1)`);
   const cats = rows('categories').length;
   if (cats !== DEFAULT_CATALOG.length) throw new Error(`la hoja tiene ${cats} categorías (deberían ser ${DEFAULT_CATALOG.length}): catálogo duplicado`);
+});
+
+await run('Al abrir la app espera a la hoja antes de enseñar las tareas', async () => {
+  await B.tab('hoy');
+  await B.fill('#search-input', 'Regar las plantas');
+  await B.eval(`document.querySelector('#search-add').requestSubmit(), true`);
+  await until(() => rows('todos').some((r) => r.data.title === 'Regar las plantas'), 'que la tarea de B llegue a la hoja', 8000);
+  gasDelay = 1200;
+  try {
+    await A.reload();
+    // Mientras Google responde se ve la espera, no la lista vieja sin la tarea de B.
+    if (!await A.eval(`!!document.querySelector('#view .opening') && !document.querySelector('#search-input')`)) throw new Error('al abrir debería esperar a la hoja');
+    await A.waitFor(`!!document.querySelector('#search-input')`, 'que se pinte Hoy', 10000);
+    if (!await A.eval(A.textIn('[data-tile-todo]', 'Regar las plantas'))) throw new Error('la primera pantalla de Hoy no trae la tarea de B');
+  } finally { gasDelay = 0; }
 });
 
 await run('Avisos: cada persona su tema y nadie recibe los suyos', async () => {

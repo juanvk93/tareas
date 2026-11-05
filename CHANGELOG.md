@@ -1,8 +1,15 @@
 # Registro de cambios
 
-Todos los cambios relevantes de **Tareas**. Versión actual: **3.2.0**.
+Todos los cambios relevantes de **Tareas**. Versión actual: **3.2.1**.
 
 > Archivo generado desde `js/changelog.js` con `node tools/gen_changelog.mjs`. No editar a mano.
+
+## [3.2.1] — 2026-11-05
+
+### Cambiado
+
+- Al abrir la app primero se trae lo último de Google Sheets y después se enseñan las tareas, así lo que ves de primeras es lo real (si Google tarda más de 8 segundos o no hay conexión, se enseña lo guardado y se actualiza al llegar).
+- Al volver a la app tras un rato, la lista se ve atenuada hasta que llegan los cambios.
 
 ## [3.2.0] — 2026-10-30
 

@@ -9,6 +9,8 @@ import { logEvent } from './diag.js';
 import { openDiagModal } from './modals/diag.js';
 
 export const POLL_MS = 60 * 1000; // Con la app visible, traer cambios de los grupos cada minuto.
+export const OPEN_WAIT_MS = 8000; // Al abrir, esperar como mucho esto a la hoja antes de pintar.
+export const STALE_MS = 60 * 1000; // Al volver tras más de esto, la vista se atenúa hasta sincronizar.
 
 export let autoSyncTimer = null;
 
@@ -63,6 +65,18 @@ export async function doSync(silent = false, groupId = G() && G().id) {
   return p;
 }
 
+/** ¿Conviene traer la hoja del grupo antes de fiarse de lo que se ve? */
+export function wantsSync(g = G()) {
+  return !!(g && g.syncUrl && g.autoSync && navigator.onLine);
+}
+
+/** Espera a la sincronización en curso de un grupo, como mucho `ms`. */
+export function waitForSync(groupId, ms = OPEN_WAIT_MS) {
+  const p = syncing.get(groupId);
+  if (!p) return Promise.resolve();
+  return Promise.race([p.catch(() => {}), new Promise((r) => setTimeout(r, ms))]);
+}
+
 /* Sincroniza todos los grupos al abrir la app, al volver a ella, al
  * recuperar la red y periódicamente mientras está visible. */
 export function startBackgroundSync() {
@@ -71,9 +85,16 @@ export function startBackgroundSync() {
     for (const g of state.settings.groups) if (g.syncUrl && g.autoSync) doSync(true, g.id);
   };
   const startPoll = () => { clearInterval(pollTimer); pollTimer = setInterval(tick, POLL_MS); };
+  let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') { tick(); startPoll(); }
-    else clearInterval(pollTimer);
+    if (document.visibilityState !== 'visible') { hiddenAt = Date.now(); clearInterval(pollTimer); return; }
+    tick(); startPoll();
+    // Tras un rato fuera, lo que se ve puede estar viejo: se atenúa hasta que llega la hoja.
+    const g = G();
+    if (Date.now() - hiddenAt > STALE_MS && wantsSync(g) && syncing.has(g.id)) {
+      document.body.classList.add('is-refreshing');
+      waitForSync(g.id).then(() => document.body.classList.remove('is-refreshing'));
+    }
   });
   window.addEventListener('online', tick);
   tick();
